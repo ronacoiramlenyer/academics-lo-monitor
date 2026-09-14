@@ -802,21 +802,46 @@ function findGradeSummaryColumns(data, sections) {
     }
   }
 
-  sections.forEach(section => {
-    const letterSuffix = section.replace(/^\d+/, "");
-    for (let row = 0; row < headerRowCount; row++) {
-      let found = false;
+  // Find the single header row that contains the most section-letter
+  // matches together - the actual "A  B  C ... K" row - rather than
+  // matching each section independently anywhere in the header. A
+  // stray single-letter cell elsewhere (a legend, a note, anything
+  // that happens to read just "G") could otherwise be mistaken for
+  // that section and silently redirect its totals into the wrong
+  // column instead of being left unmatched.
+  let bestRow = -1;
+  let bestMatchCount = 0;
+
+  for (let row = 0; row < headerRowCount; row++) {
+    let matchCount = 0;
+    sections.forEach(section => {
+      const letterSuffix = section.replace(/^\d+/, "");
       for (let col = 0; col < data[row].length; col++) {
         const cell = data[row][col] ? data[row][col].toString().trim().toUpperCase() : "";
         if (cell === section || (letterSuffix && cell === letterSuffix)) {
-          columns.sections[section] = col;
-          found = true;
+          matchCount++;
           break;
         }
       }
-      if (found) break;
+    });
+    if (matchCount > bestMatchCount) {
+      bestMatchCount = matchCount;
+      bestRow = row;
     }
-  });
+  }
+
+  if (bestRow !== -1) {
+    sections.forEach(section => {
+      const letterSuffix = section.replace(/^\d+/, "");
+      for (let col = 0; col < data[bestRow].length; col++) {
+        const cell = data[bestRow][col] ? data[bestRow][col].toString().trim().toUpperCase() : "";
+        if (cell === section || (letterSuffix && cell === letterSuffix)) {
+          columns.sections[section] = col;
+          break;
+        }
+      }
+    });
+  }
 
   return columns;
 }
@@ -898,8 +923,11 @@ function syncGradeSummarySheet(spreadsheet, gradeLevel, loCompetencyPairs, stude
     + `LO Description: ${columns.loDescription === -1 ? "NOT FOUND" : "col " + (columns.loDescription + 1)}, `
     + `Competency: ${columns.competency === -1 ? "NOT FOUND" : "col " + (columns.competency + 1)}, `
     + `Item Placement: ${columns.itemPlacement === -1 ? "NOT FOUND" : "col " + (columns.itemPlacement + 1)}, `
-    + `TOTAL: ${columns.total === -1 ? "NOT FOUND" : "col " + (columns.total + 1)}, `
-    + `Sections found: ${Object.keys(columns.sections).length}/${sections.length} (${sections.filter(s => columns.sections[s] === undefined).join(", ") || "none missing"})`
+    + `TOTAL: ${columns.total === -1 ? "NOT FOUND" : "col " + (columns.total + 1)}`
+  );
+  console.log(
+    "GRADE " + gradeLevel + " section columns - "
+    + sections.map(s => s + ": " + (columns.sections[s] !== undefined ? "col " + (columns.sections[s] + 1) : "NOT FOUND")).join(", ")
   );
 
   const existing = findExistingGradeSummaryRows(data, columns);
