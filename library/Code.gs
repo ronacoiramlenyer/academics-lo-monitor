@@ -385,10 +385,16 @@ function processSelectedFile(fileId) {
 }
 
 /**
- * Normalize a section/class value for matching (e.g., " 1a " → "1A")
+ * Normalize a section/class value for matching. Pulls out just the
+ * grade + section code (e.g. "7H") from values that carry extra text
+ * around it, like a ZipGrade Class column of "FILIPINO 7H" or a sheet
+ * name of "7H" — both normalize to the same "7H" so they match.
  */
 function normalizeSection(value) {
-  return value ? value.toString().trim().toUpperCase() : "";
+  if (!value) return "";
+  const text = value.toString().trim();
+  const match = text.match(/(\d+)\s*-?\s*([A-Za-z]+)/);
+  return match ? (match[1] + match[2]).toUpperCase() : text.toUpperCase();
 }
 
 /**
