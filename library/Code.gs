@@ -520,7 +520,7 @@ function processSelectedFile(fileId) {
     completeProgress(`✓ Loaded ${totalMatched} students`);
 
     let completionMessage = `✓ Successfully loaded Grade ${templateGradeLevel} data!\n\nTotal students matched: ${totalMatched}\n\nCheck the logs for details.`;
-    if (readLoCompetencyPairs(templateSpreadsheet).length > 0) {
+    if (readLoCompetencyPairs(templateSpreadsheet, templateGradeLevel).length > 0) {
       completionMessage += `\n\nRun "Refresh Competency Summary" from the menu to update the GRADE ${templateGradeLevel} summary.`;
     }
     SpreadsheetApp.getUi().alert(completionMessage);
@@ -565,7 +565,7 @@ function refreshCompetencySummary() {
 
     const templateGradeLevel = Array.from(detectedGrades)[0];
 
-    const loCompetencyPairs = readLoCompetencyPairs(templateSpreadsheet);
+    const loCompetencyPairs = readLoCompetencyPairs(templateSpreadsheet, templateGradeLevel);
     if (loCompetencyPairs.length === 0) {
       SpreadsheetApp.getUi().alert(
         `❌ No "${LO_COMPETENCY_SHEET_NAME}" sheet found (or it has no usable rows).\n\nSet it up first, then try again.`
@@ -674,13 +674,22 @@ function prepareSectionColumns(sheet, headerRow, numQuestions) {
 
 /**
  * Read LOs-Competency, if it exists, and unroll it into one (LO Code,
- * Competency) pair per non-blank "Competency N" cell. This is the
- * auto-line-up source for the GRADE # sheet - LOs-Competency itself
- * carries no item numbers, only descriptions. Returns [] if the sheet
- * doesn't exist or has no usable rows - competency tagging is entirely
- * optional and shouldn't block a normal load.
+ * Competency) pair per non-blank "Competency N" cell - however many
+ * Competency columns exist and are filled in, not just a fixed count.
+ * This is the auto-line-up source for the GRADE # sheet - LOs-
+ * Competency itself carries no item numbers, only descriptions.
+ *
+ * A row's LO Code is auto-generated ("Comp. G{gradeLevel}.{n}") and
+ * written back into the sheet whenever that cell is blank, so a row
+ * only needs a description and competencies typed in - it's never
+ * skipped just for missing a code. An LO Code someone already typed is
+ * left exactly as it is.
+ *
+ * Returns [] if the sheet doesn't exist or has no usable rows -
+ * competency tagging is entirely optional and shouldn't block a
+ * normal load.
  */
-function readLoCompetencyPairs(spreadsheet) {
+function readLoCompetencyPairs(spreadsheet, gradeLevel) {
   const sheet = spreadsheet.getSheetByName(LO_COMPETENCY_SHEET_NAME);
   if (!sheet) return [];
 
@@ -700,21 +709,32 @@ function readLoCompetencyPairs(spreadsheet) {
   });
 
   const pairs = [];
+  let loNumber = 0;
+
   for (let row = headerRowIndex + 1; row < data.length; row++) {
-    const loCode = data[row][loCodeIdx];
-    if (!loCode) continue;
-
     const loDescription = loDescriptionIdx !== -1 ? (data[row][loDescriptionIdx] || "").toString().trim() : "";
+    const rowCompetencies = competencyIndices.filter(colIndex => {
+      const cell = data[row][colIndex];
+      return cell && cell.toString().trim() !== "";
+    });
 
-    competencyIndices.forEach(colIndex => {
-      const competencyText = data[row][colIndex];
-      if (competencyText && competencyText.toString().trim() !== "") {
-        pairs.push({
-          loCode: loCode.toString().trim(),
-          loDescription: loDescription,
-          competency: competencyText.toString().trim()
-        });
-      }
+    // Skip rows with nothing to tag - no description and no competencies
+    if (!loDescription && rowCompetencies.length === 0) continue;
+
+    loNumber++;
+
+    let loCode = data[row][loCodeIdx] ? data[row][loCodeIdx].toString().trim() : "";
+    if (!loCode) {
+      loCode = `Comp. G${gradeLevel}.${loNumber}`;
+      sheet.getRange(row + 1, loCodeIdx + 1).setValue(loCode);
+    }
+
+    rowCompetencies.forEach(colIndex => {
+      pairs.push({
+        loCode: loCode,
+        loDescription: loDescription,
+        competency: data[row][colIndex].toString().trim()
+      });
     });
   }
 
