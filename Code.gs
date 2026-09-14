@@ -819,8 +819,15 @@ function extractGradeSummaryRows(gradeLevel) {
     if (FOOTER_LABEL_PATTERN.test(data[i].join(' '))) continue; // the footer row itself
 
     const competency = columns.competency !== -1 ? data[i][columns.competency] : '';
-    const item = columns.item !== -1 ? data[i][columns.item] : '';
-    const maxScore = columns.maxScore !== -1 ? (Number(data[i][columns.maxScore]) || 0) : 0;
+    // Some sheets have a dedicated "Item" column (a rubric label, a
+    // number); others only have "Item Placement" (a comma list, e.g.
+    // "1,2,3,...,10") with no separate Item column at all - fall back
+    // to that raw value so Item is never silently left blank.
+    const itemPlacementRaw = columns.itemPlacement !== -1 ? data[i][columns.itemPlacement] : '';
+    const item = columns.item !== -1 ? data[i][columns.item] : itemPlacementRaw;
+    const maxScore = columns.maxScore !== -1
+      ? (Number(data[i][columns.maxScore]) || 0)
+      : parseItemPlacement(itemPlacementRaw).length;
     const assessmentType = columns.assessmentType !== -1 ? data[i][columns.assessmentType] : '';
     const itemPerformance = columns.itemPerformance !== -1 ? (Number(data[i][columns.itemPerformance]) || 0) : 0;
 
