@@ -51,21 +51,23 @@ function showFileList() {
     console.log(`Auto-detected grade level: ${selectedGrade}`);
 
     // Get all files in folder
-    const files = parentFolder.getFilesByType(MimeType.GOOGLE_SHEETS);
+    // ZipGrade exports can be a native Google Sheet or an uploaded .xlsx file
+    const allowedMimeTypes = [MimeType.GOOGLE_SHEETS, MimeType.MICROSOFT_EXCEL];
+    const files = parentFolder.getFiles();
     const fileList = [];
 
     while (files.hasNext()) {
       const file = files.next();
-      const fileName = file.getName();
       const fileId = file.getId();
 
-      // Skip the template itself
-      if (fileId !== templateSpreadsheet.getId()) {
-        fileList.push({
-          name: fileName,
-          id: fileId
-        });
-      }
+      // Skip the template itself and any non-spreadsheet files
+      if (fileId === templateSpreadsheet.getId()) continue;
+      if (allowedMimeTypes.indexOf(file.getMimeType()) === -1) continue;
+
+      fileList.push({
+        name: file.getName(),
+        id: fileId
+      });
     }
 
     if (fileList.length === 0) {
@@ -149,6 +151,7 @@ function showFileList() {
  * Process the selected file
  */
 function processSelectedFile(fileId) {
+  let tempConvertedFileId = null;
   try {
     console.log("Processing file ID: " + fileId);
 
@@ -179,10 +182,25 @@ function processSelectedFile(fileId) {
 
     console.log(`Found file: ${zipgradeFile.getName()}`);
 
-    // Open file as spreadsheet
+    // Open file as spreadsheet. ZipGrade exports may be a native Google
+    // Sheet, or an .xlsx upload that first needs converting to one.
+    const zipgradeMimeType = zipgradeFile.getMimeType();
     let zipgradeSpreadsheet;
     try {
-      zipgradeSpreadsheet = SpreadsheetApp.open(zipgradeFile);
+      if (zipgradeMimeType === MimeType.GOOGLE_SHEETS) {
+        zipgradeSpreadsheet = SpreadsheetApp.open(zipgradeFile);
+      } else if (zipgradeMimeType === MimeType.MICROSOFT_EXCEL) {
+        console.log("Converting uploaded Excel file to Google Sheets format...");
+        const converted = Drive.Files.insert(
+          { title: zipgradeFile.getName(), mimeType: MimeType.GOOGLE_SHEETS },
+          zipgradeFile.getBlob(),
+          { convert: true }
+        );
+        tempConvertedFileId = converted.id;
+        zipgradeSpreadsheet = SpreadsheetApp.openById(tempConvertedFileId);
+      } else {
+        throw new Error(`Unsupported file type "${zipgradeMimeType}". Please upload a Google Sheet or an .xlsx file.`);
+      }
     } catch (e) {
       throw new Error(`Could not open file: ${e.message}`);
     }
@@ -345,6 +363,15 @@ function processSelectedFile(fileId) {
   } catch (error) {
     console.error("ERROR: " + error.message);
     SpreadsheetApp.getUi().alert("❌ Error:\n\n" + error.message);
+  } finally {
+    if (tempConvertedFileId) {
+      try {
+        DriveApp.getFileById(tempConvertedFileId).setTrashed(true);
+        console.log("Cleaned up temporary converted file");
+      } catch (cleanupError) {
+        console.error("Could not clean up temporary converted file: " + cleanupError.message);
+      }
+    }
   }
 }
 
@@ -409,7 +436,7 @@ function showInstructions() {
 ═══════════════════════════════════════════════════════════════
 
 WHAT THIS DOES:
-✓ Finds all ZipGrade files in the same folder
+✓ Finds all ZipGrade files (Google Sheets or .xlsx) in the same folder
 ✓ Let's you select which file to load
 ✓ Auto-detects your grade level from sheet names
 ✓ Validates that ZipGrade file matches your template grade
