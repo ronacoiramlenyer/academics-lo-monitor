@@ -107,5 +107,29 @@ from whatever's currently in the section sheets. If `LOs-Competency`
 doesn't exist yet, "Refresh Competency Summary" just says so instead of
 doing anything.
 
-If `LO Mapping` doesn't exist, this step is skipped entirely and the
-rest of the load behaves exactly as before.
+## Central Database push (optional)
+
+A separate "Learning Outcomes" menu pushes the active `GRADE #` sheet's
+rows up to one shared Master spreadsheet across departments:
+
+- **Push to Central Database** — extracts, shows an update/new count,
+  confirms, then writes.
+- **Preview extraction (no push)** — runs the same extraction and logs
+  it, without touching the Master sheet.
+
+Both read every field straight from the `GRADE #` sheet's own columns
+(`Item`, `MaxScore`, `Competency`, `AssessmentType`, `ItemPerformance`)
+rather than deriving them, since those can already hold whatever the
+sheet owner put there (a rubric label, a formula result, a slot name
+like `Competency1`) — the columns are located dynamically by header
+text, same as the rest of this script, never assumed to be at fixed
+positions. `StudentCount` comes from a footer row matching
+`FOOTER_LABEL_PATTERN` (e.g. "TOTAL NO. OF STUDENTS").
+
+Setup, in `template-bootstrap/Code.gs`:
+- Set `DEPARTMENT` to this spreadsheet's department name.
+- Set `MASTER_SHEET_ID` in `library/Code.gs` to the actual Master
+  spreadsheet's ID (it ships as `'CHANGE_ME'`).
+- `HEADER_INFO_CELL` in `library/Code.gs` (default `'A5'`) is where
+  "Third Trimester, SY 2025-2026"-style text lives in the `GRADE #`
+  sheet's own title rows — adjust if it's elsewhere.

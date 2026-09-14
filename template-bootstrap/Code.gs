@@ -15,6 +15,10 @@
  * See README.md for how to wire up the library Script ID.
  */
 
+// Set once per copy of this file - the department this spreadsheet
+// pushes to the Central Database as.
+const DEPARTMENT = "CHANGE_ME";
+
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu("📊 ZipGrade Loader")
@@ -24,6 +28,19 @@ function onOpen() {
     .addSeparator()
     .addItem("View Logs", "viewLogs")
     .addToUi();
+
+  ui.createMenu("Learning Outcomes")
+    .addItem("Push to Central Database", "pushToCentralDatabase")
+    .addItem("Preview extraction (no push)", "previewExtraction")
+    .addToUi();
+}
+
+function pushToCentralDatabase() {
+  LO_library_code_academics.push(DEPARTMENT);
+}
+
+function previewExtraction() {
+  LO_library_code_academics.preview();
 }
 
 function showFileList() {

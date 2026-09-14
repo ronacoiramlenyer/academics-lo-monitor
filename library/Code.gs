@@ -18,6 +18,31 @@ const LO_COMPETENCY_SHEET_NAME = "LOs-Competency";
 // start here, whatever's already above stays exactly as it is.
 const GRADE_SUMMARY_DATA_START_ROW = 12;
 
+// --- Central Database push -------------------------------------------
+// Pushes each (LO, Competency, Section) row already computed on the
+// GRADE # sheet up to one shared Master spreadsheet across the school.
+// Same MASTER_SHEET_ID and MASTER_HEADERS for every department - only
+// the department name (passed into push()) differs per spreadsheet.
+
+const MASTER_SHEET_ID = 'CHANGE_ME'; // Central Database spreadsheet ID
+
+const MASTER_HEADERS = [
+  'SyncedAt', 'Department', 'SchoolYear', 'Trimester', 'GradeLevel',
+  'LOCode', 'Competency', 'Item', 'MaxScore', 'AssessmentType',
+  'Section', 'SectionScore', 'StudentCount', 'ItemPerformance', 'PushedBy'
+];
+
+// Where "Third Trimester, SY 2025-2026" (or similar) lives in the
+// GRADE # sheet's own title rows (above GRADE_SUMMARY_DATA_START_ROW,
+// so still never written to by this script). Adjust if it's not A5.
+const HEADER_INFO_CELL = 'A5';
+
+const GRADE_SHEET_PATTERN = /^Grade\s*\d+$/i; // matches "Grade 7", not "7A", "LOs-Competency", etc.
+
+// Row holding each section's student count, read for StudentCount - not
+// assumed to be at a fixed row, just somewhere below the header.
+const FOOTER_LABEL_PATTERN = /TOTAL\s+NO\.?\s+OF\s+STUDENTS/i;
+
 /**
  * Create menu when sheet opens
  */
@@ -643,6 +668,225 @@ function readSectionResponses(sheetsForGrade) {
 }
 
 /**
+ * Public: runs the Central Database extraction only, no writes.
+ */
+function preview() {
+  const ui = SpreadsheetApp.getUi();
+  const gradeLevel = assertActiveGradeSummarySheet();
+  const { trimester, schoolYear } = parseHeaderInfo(SpreadsheetApp.getActiveSheet());
+  const rows = extractGradeSummaryRows(gradeLevel);
+  Logger.log(JSON.stringify(rows, null, 2));
+  ui.alert(
+    'Trimester: ' + trimester + '\nSchool Year: ' + schoolYear +
+    '\nExtracted ' + rows.length + ' rows.\nFirst row:\n' + (rows.length ? JSON.stringify(rows[0], null, 2) : '(none)')
+  );
+}
+
+/**
+ * Public: extracts the active GRADE # sheet's rows, confirms, and
+ * pushes them into the shared Master spreadsheet.
+ */
+function push(department) {
+  const ui = SpreadsheetApp.getUi();
+  const gradeLevel = assertActiveGradeSummarySheet();
+  const { trimester, schoolYear } = parseHeaderInfo(SpreadsheetApp.getActiveSheet());
+
+  const rows = extractGradeSummaryRows(gradeLevel);
+  if (!rows.length) {
+    ui.alert('No data rows found to push.');
+    return;
+  }
+
+  const masterSheet = SpreadsheetApp.openById(MASTER_SHEET_ID).getSheets()[0];
+  const colIndex = getMasterColumnIndex(masterSheet);
+  const existingKeyToRow = loadExistingMasterKeyMap(masterSheet, colIndex);
+  const { updateCount, newCount } = countMasterMatches(existingKeyToRow, department, schoolYear, trimester, rows);
+
+  const confirmed = ui.alert(
+    'Confirm push',
+    'Department: ' + department + '\nSchool Year: ' + schoolYear + '\nTrimester: ' + trimester +
+    '\n\n' + updateCount + ' row(s) already exist and will be OVERWRITTEN.\n' +
+    newCount + ' row(s) are new and will be ADDED.\n\nContinue?',
+    ui.ButtonSet.YES_NO
+  );
+  if (confirmed !== ui.Button.YES) return;
+
+  const written = writeMasterRows(masterSheet, colIndex, existingKeyToRow, department, schoolYear, trimester, rows);
+  ui.alert('Pushed ' + written + ' rows (' + updateCount + ' updated, ' + newCount + ' new).');
+}
+
+/**
+ * Confirms the active sheet is a "GRADE #" sheet and returns its grade
+ * level number.
+ */
+function assertActiveGradeSummarySheet() {
+  const sheet = SpreadsheetApp.getActiveSheet();
+  if (!GRADE_SHEET_PATTERN.test(sheet.getName())) {
+    throw new Error('Active sheet is "' + sheet.getName() + '" — switch to a GRADE # sheet first.');
+  }
+  const match = sheet.getName().match(/\d+/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+/**
+ * Parses "Third Trimester, SY 2025-2026" out of HEADER_INFO_CELL, in
+ * the GRADE # sheet's own title rows.
+ */
+function parseHeaderInfo(sheet) {
+  const text = String(sheet.getRange(HEADER_INFO_CELL).getValue() || '');
+  const trimesterMatch = /^([^,]+),/.exec(text);
+  const schoolYearMatch = /(\d{4}\s*-\s*\d{4})/.exec(text);
+  if (!trimesterMatch || !schoolYearMatch) {
+    throw new Error('Could not parse Trimester/School Year from ' + HEADER_INFO_CELL + ': "' + text + '"');
+  }
+  return {
+    trimester: trimesterMatch[1].trim(),
+    schoolYear: schoolYearMatch[1].replace(/\s/g, '')
+  };
+}
+
+/**
+ * Extracts (LOCode, Competency, Section) rows straight from the
+ * GRADE # sheet's own cells - Item, MaxScore, Competency,
+ * AssessmentType, and ItemPerformance are whatever's already on the
+ * sheet (a rubric label, a formula result, etc.), read as-is rather
+ * than derived. Column positions are located dynamically (never
+ * assumed fixed), and StudentCount comes from a footer row matching
+ * FOOTER_LABEL_PATTERN, the same way the original fixed-column
+ * version read it.
+ */
+function extractGradeSummaryRows(gradeLevel) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const allSheets = spreadsheet.getSheets();
+  const sheetsForGrade = allSheets.filter(sheet => extractGradeLevel(sheet.getName()) === gradeLevel);
+  const sections = sheetsForGrade.map(sheet => normalizeSection(sheet.getName()));
+
+  const summarySheet = findGradeSummarySheet(spreadsheet, gradeLevel);
+  if (!summarySheet) {
+    throw new Error('No "GRADE ' + gradeLevel + '" sheet found.');
+  }
+
+  const lastRow = Math.max(summarySheet.getLastRow(), GRADE_SUMMARY_DATA_START_ROW - 1);
+  const lastColumn = Math.max(summarySheet.getLastColumn(), 1);
+  const data = summarySheet.getRange(1, 1, lastRow, lastColumn).getValues();
+
+  const columns = findGradeSummaryColumns(data, sections);
+  if (columns.loCode === -1) {
+    throw new Error('Could not locate the LO Code column on the GRADE ' + gradeLevel + ' sheet.');
+  }
+
+  const studentCountsBySection = findStudentCountsBySection(data, columns, sections);
+
+  const rows = [];
+
+  for (let i = GRADE_SUMMARY_DATA_START_ROW - 1; i < data.length; i++) {
+    const loCode = data[i][columns.loCode];
+    if (!loCode) continue;
+    if (FOOTER_LABEL_PATTERN.test(data[i].join(' '))) continue; // the footer row itself
+
+    const competency = columns.competency !== -1 ? data[i][columns.competency] : '';
+    const item = columns.item !== -1 ? data[i][columns.item] : '';
+    const maxScore = columns.maxScore !== -1 ? (Number(data[i][columns.maxScore]) || 0) : 0;
+    const assessmentType = columns.assessmentType !== -1 ? data[i][columns.assessmentType] : '';
+    const itemPerformance = columns.itemPerformance !== -1 ? (Number(data[i][columns.itemPerformance]) || 0) : 0;
+
+    sections.forEach(section => {
+      if (columns.sections[section] === undefined) return;
+
+      rows.push({
+        gradeLevel: 'G' + gradeLevel,
+        loCode: loCode.toString().split(':')[0].trim(),
+        competency: competency ? competency.toString().trim() : '',
+        item: item ? item.toString().trim() : '',
+        maxScore: maxScore,
+        assessmentType: assessmentType ? assessmentType.toString().trim() : '',
+        section: section,
+        sectionScore: Number(data[i][columns.sections[section]]) || 0,
+        studentCount: studentCountsBySection[section] || 0,
+        itemPerformance: itemPerformance
+      });
+    });
+  }
+
+  return rows;
+}
+
+function getMasterColumnIndex(sheet) {
+  const headerRow = sheet.getRange(1, 1, 1, MASTER_HEADERS.length).getValues()[0];
+  const index = {};
+  headerRow.forEach((h, i) => { index[h] = i; });
+  return index;
+}
+
+function loadExistingMasterKeyMap(masterSheet, colIndex) {
+  const lastRow = masterSheet.getLastRow();
+  const existingKeyToRow = {};
+  if (lastRow > 1) {
+    const data = masterSheet.getRange(2, 1, lastRow - 1, MASTER_HEADERS.length).getValues();
+    data.forEach((r, i) => {
+      const key = [
+        r[colIndex['SchoolYear']], r[colIndex['Trimester']], r[colIndex['Department']],
+        r[colIndex['LOCode']], r[colIndex['Competency']], r[colIndex['Section']]
+      ].join('||');
+      existingKeyToRow[key] = i + 2; // actual sheet row number
+    });
+  }
+  return existingKeyToRow;
+}
+
+function countMasterMatches(existingKeyToRow, department, schoolYear, trimester, rows) {
+  let updateCount = 0;
+  rows.forEach(row => {
+    const key = [schoolYear, trimester, department, row.loCode, row.competency, row.section].join('||');
+    if (existingKeyToRow[key]) updateCount++;
+  });
+  return { updateCount: updateCount, newCount: rows.length - updateCount };
+}
+
+function writeMasterRows(masterSheet, colIndex, existingKeyToRow, department, schoolYear, trimester, rows) {
+  const syncedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  const pushedBy = Session.getActiveUser().getEmail() || 'unknown';
+  const newRows = [];
+
+  rows.forEach(row => {
+    const rowValues = MASTER_HEADERS.map(h => {
+      switch (h) {
+        case 'SyncedAt': return syncedAt;
+        case 'Department': return department;
+        case 'SchoolYear': return schoolYear;
+        case 'Trimester': return trimester;
+        case 'PushedBy': return pushedBy;
+        case 'GradeLevel': return row.gradeLevel || '';
+        case 'LOCode': return row.loCode || '';
+        case 'Competency': return row.competency || '';
+        case 'Item': return row.item || '';
+        case 'MaxScore': return row.maxScore || '';
+        case 'AssessmentType': return row.assessmentType || '';
+        case 'Section': return row.section || '';
+        case 'SectionScore': return row.sectionScore || 0;
+        case 'StudentCount': return row.studentCount || 0;
+        case 'ItemPerformance': return row.itemPerformance || 0;
+        default: return '';
+      }
+    });
+
+    const key = [schoolYear, trimester, department, row.loCode, row.competency, row.section].join('||');
+    const existingRow = existingKeyToRow[key];
+    if (existingRow) {
+      masterSheet.getRange(existingRow, 1, 1, MASTER_HEADERS.length).setValues([rowValues]);
+    } else {
+      newRows.push(rowValues);
+    }
+  });
+
+  if (newRows.length) {
+    masterSheet.getRange(masterSheet.getLastRow() + 1, 1, newRows.length, MASTER_HEADERS.length).setValues(newRows);
+  }
+
+  return rows.length;
+}
+
+/**
  * Wipe columns D onward (header row through the last existing row) on
  * a section sheet and rebuild them from the ZipGrade file: Num
  * Questions, Num Correct, Percent Correct, then Q1...Qn. This means
@@ -782,13 +1026,20 @@ function findGradeSummarySheet(spreadsheet, gradeLevel) {
  */
 function findGradeSummaryColumns(data, sections) {
   const headerRowCount = Math.min(data.length, GRADE_SUMMARY_DATA_START_ROW - 1);
-  const columns = { loCode: -1, loDescription: -1, competency: -1, itemPlacement: -1, total: -1, sections: {} };
+  const columns = {
+    loCode: -1, loDescription: -1, competency: -1, itemPlacement: -1, total: -1,
+    item: -1, maxScore: -1, assessmentType: -1, itemPerformance: -1,
+    sections: {}
+  };
 
   // Matched by prefix, not exact equality - a real header can read
   // "LO Code: Description" for the code column, "Item Placement:" with
   // a trailing colon, etc. "lo code" is checked before "lo description"
   // so a combined "LO Code: Description" header lands on loCode, not
-  // loDescription (which needs its own dedicated column to match at all).
+  // loDescription. "item placement" and "item performance" are checked
+  // before the bare "item" label so a plain "Item" column - used by
+  // some sheets for a rubric-criterion label rather than a ZipGrade
+  // item list - doesn't get shadowed by either of those.
   for (let row = 0; row < headerRowCount; row++) {
     for (let col = 0; col < data[row].length; col++) {
       const cell = data[row][col] ? data[row][col].toString().trim().toLowerCase() : "";
@@ -798,6 +1049,10 @@ function findGradeSummaryColumns(data, sections) {
       else if (columns.loDescription === -1 && cell.indexOf("lo description") === 0) columns.loDescription = col;
       else if (columns.competency === -1 && cell.indexOf("competency") === 0) columns.competency = col;
       else if (columns.itemPlacement === -1 && cell.indexOf("item placement") === 0) columns.itemPlacement = col;
+      else if (columns.itemPerformance === -1 && cell.indexOf("item performance") === 0) columns.itemPerformance = col;
+      else if (columns.item === -1 && cell.indexOf("item") === 0) columns.item = col;
+      else if (columns.maxScore === -1 && cell.indexOf("max score") === 0) columns.maxScore = col;
+      else if (columns.assessmentType === -1 && (cell.indexOf("assessment type") === 0 || cell === "a-m-t")) columns.assessmentType = col;
       else if (columns.total === -1 && cell.indexOf("total") === 0) columns.total = col;
     }
   }
@@ -844,6 +1099,28 @@ function findGradeSummaryColumns(data, sections) {
   }
 
   return columns;
+}
+
+/**
+ * Find the footer row matching FOOTER_LABEL_PATTERN (e.g. "TOTAL NO.
+ * OF STUDENTS") below the data rows, and read each section's student
+ * count from it. Returns {} if no such row exists - StudentCount then
+ * just comes back 0 for every row rather than blocking the push.
+ */
+function findStudentCountsBySection(data, columns, sections) {
+  for (let row = GRADE_SUMMARY_DATA_START_ROW - 1; row < data.length; row++) {
+    if (!FOOTER_LABEL_PATTERN.test(data[row].join(' '))) continue;
+
+    const counts = {};
+    sections.forEach(section => {
+      if (columns.sections[section] !== undefined) {
+        counts[section] = Number(data[row][columns.sections[section]]) || 0;
+      }
+    });
+    return counts;
+  }
+
+  return {};
 }
 
 /**
