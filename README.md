@@ -77,8 +77,9 @@ Two sheets are involved:
   cell from `LOs-Competency` into its own row (`LO Code`,
   `LO Description`, `Competency`), so nothing needs retyping there. The
   **only** manual step is filling in `Item Placement` per row — the
-  ZipGrade question numbers that competency covers, separated by spaces
-  (e.g. `1 3 5`). Re-syncing preserves whatever's already typed there.
+  ZipGrade question numbers that competency covers, separated by commas
+  (e.g. `1, 3, 4, 5`) — spaces alone also work. Re-syncing preserves
+  whatever's already typed there.
 
   **Rows above row 12 on this sheet are never read from or written to**
   — that's reserved for whatever title/header formatting you've already
