@@ -309,25 +309,20 @@ function processSelectedFile(fileId) {
 
       const templateHeaders = templateData[headerRowIndex];
 
-      // Find columns
+      // Find the Student Number column
       let studentNumberColIndex = -1;
-      let numCorrectColIndex = -1;
-      let percentCorrectColIndex = -1;
-      let questionColStartIndex = -1;
-
       for (let i = 0; i < templateHeaders.length; i++) {
-        const header = templateHeaders[i].toString().trim().toLowerCase();
-        if (header === "student number") studentNumberColIndex = i;
-        else if (header === "num correct") numCorrectColIndex = i;
-        else if (header === "percent correct") percentCorrectColIndex = i;
-        else if (header.match(/^q\d+$/)) {
-          if (questionColStartIndex === -1) questionColStartIndex = i;
+        if (templateHeaders[i].toString().trim().toLowerCase() === "student number") {
+          studentNumberColIndex = i;
+          break;
         }
       }
 
-      // Reset columns D onward before writing fresh data, so values/
-      // formatting from a previous load don't linger
-      resetSectionColumns(templateSheet, headerRowIndex + 2);
+      // Columns D onward are fully generated from the ZipGrade file on
+      // every load - Num Correct, Percent Correct, then Q1...Qn - so the
+      // template doesn't need to already have them, and a question-count
+      // change between loads doesn't leave stale columns behind.
+      const columns = prepareSectionColumns(templateSheet, headerRowIndex + 1, numQuestions);
 
       // Update rows
       let sheetMatched = 0;
@@ -343,23 +338,16 @@ function processSelectedFile(fileId) {
           const student = studentLookup[key];
           const updateRow = row + 1;
 
-          if (numCorrectColIndex !== -1) {
-            templateSheet.getRange(updateRow, numCorrectColIndex + 1).setValue(student.numCorrect);
-          }
+          templateSheet.getRange(updateRow, columns.numCorrectColIndex + 1).setValue(student.numCorrect);
+          templateSheet.getRange(updateRow, columns.percentCorrectColIndex + 1).setValue(student.percentCorrect);
 
-          if (percentCorrectColIndex !== -1) {
-            templateSheet.getRange(updateRow, percentCorrectColIndex + 1).setValue(student.percentCorrect);
-          }
+          for (let q = 0; q < student.questions.length; q++) {
+            const response = parseInt(student.questions[q]) || 0;
+            const col = columns.questionColStartIndex + q + 1;
+            const cell = templateSheet.getRange(updateRow, col);
 
-          if (questionColStartIndex !== -1) {
-            for (let q = 0; q < student.questions.length; q++) {
-              const response = parseInt(student.questions[q]) || 0;
-              const col = questionColStartIndex + q + 1;
-              const cell = templateSheet.getRange(updateRow, col);
-
-              cell.setValue(response);
-              cell.setBackground(response === 1 ? greenFill : redFill);
-            }
+            cell.setValue(response);
+            cell.setBackground(response === 1 ? greenFill : redFill);
           }
 
           sheetMatched++;
@@ -394,17 +382,31 @@ function processSelectedFile(fileId) {
 }
 
 /**
- * Clear columns D onward, from dataStartRow down, on a section sheet
- * before writing fresh ZipGrade data — clears both values and
- * formatting (e.g. leftover green/red fills from a previous load).
+ * Wipe columns D onward (header row through the last existing row) on
+ * a section sheet and rebuild them from the ZipGrade file: Num Correct,
+ * Percent Correct, then Q1...Qn. This means the template doesn't need
+ * those columns to already exist, and a question-count change between
+ * loads doesn't leave stale extra columns behind. Returns the 0-based
+ * column indices (matching the getValues() row-array convention used
+ * elsewhere) for the three generated columns.
  */
-function resetSectionColumns(sheet, dataStartRow) {
-  const lastRow = sheet.getLastRow();
-  const lastColumn = sheet.getLastColumn();
+function prepareSectionColumns(sheet, headerRow, numQuestions) {
+  const dataHeaders = ["Num Correct", "Percent Correct"];
+  for (let q = 1; q <= numQuestions; q++) {
+    dataHeaders.push("Q" + q);
+  }
 
-  if (lastRow < dataStartRow || lastColumn < 4) return;
+  const lastColumn = Math.max(sheet.getLastColumn(), 3 + dataHeaders.length);
+  const lastRow = Math.max(sheet.getLastRow(), headerRow);
 
-  sheet.getRange(dataStartRow, 4, lastRow - dataStartRow + 1, lastColumn - 3).clear();
+  sheet.getRange(headerRow, 4, lastRow - headerRow + 1, lastColumn - 3).clear();
+  sheet.getRange(headerRow, 4, 1, dataHeaders.length).setValues([dataHeaders]);
+
+  return {
+    numCorrectColIndex: 3,
+    percentCorrectColIndex: 4,
+    questionColStartIndex: 5
+  };
 }
 
 /**
