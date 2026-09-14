@@ -638,6 +638,15 @@ function refreshCompetencySummary() {
  * reading each section sheet's own Student Number and Q1...Qn columns
  * directly, instead of from a ZipGrade file. Used by
  * refreshCompetencySummary so it doesn't need the ZipGrade export.
+ *
+ * Only students with at least one non-blank Q cell are included - a
+ * student listed on the roster but never matched to a ZipGrade row
+ * (absent, not in that export) has every Q cell left blank by
+ * prepareSectionColumns/processSelectedFile, rather than 0. Counting
+ * them here would inflate the "total students" denominator used for
+ * Item Performance without contributing any score, silently pulling
+ * the percentage down below 100% even when every student who actually
+ * took the assessment got everything right.
  */
 function readSectionResponses(sheetsForGrade) {
   const studentLookup = {};
@@ -673,10 +682,12 @@ function readSectionResponses(sheetsForGrade) {
       const studentNum = templateData[row][studentNumberColIndex];
       if (!studentNum || studentNum === "Student Number") continue;
 
+      const questions = templateData[row].slice(questionStartIndex, questionStartIndex + sheetNumQuestions);
+      const hasAnyResponse = questions.some(q => q !== "" && q !== null && q !== undefined);
+      if (!hasAnyResponse) continue; // roster row never matched to a ZipGrade response - not assessed
+
       const key = buildLookupKey(section, studentNum);
-      studentLookup[key] = {
-        questions: templateData[row].slice(questionStartIndex, questionStartIndex + sheetNumQuestions)
-      };
+      studentLookup[key] = { questions: questions };
     }
   });
 
