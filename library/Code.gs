@@ -674,10 +674,13 @@ function prepareSectionColumns(sheet, headerRow, numQuestions) {
 
 /**
  * Read LOs-Competency, if it exists, and unroll it into one (LO Code,
- * Competency) pair per non-blank "Competency N" cell - however many
- * Competency columns exist and are filled in, not just a fixed count.
- * This is the auto-line-up source for the GRADE # sheet - LOs-
- * Competency itself carries no item numbers, only descriptions.
+ * Competency) pair per row's LO Description plus each non-blank
+ * "Competency N" cell - however many Competency columns exist and are
+ * filled in, not just a fixed count. The LO Description itself becomes
+ * its own row first (so a row with a description and 2 competencies
+ * unrolls into 3 pairs), then each competency in column order. This is
+ * the auto-line-up source for the GRADE # sheet - LOs-Competency
+ * itself carries no item numbers, only descriptions.
  *
  * A row's LO Code is auto-generated ("Comp. G{gradeLevel}.{n}") and
  * written back into the sheet whenever that cell is blank, so a row
@@ -727,6 +730,14 @@ function readLoCompetencyPairs(spreadsheet, gradeLevel) {
     if (!loCode) {
       loCode = `Comp. G${gradeLevel}.${loNumber}`;
       sheet.getRange(row + 1, loCodeIdx + 1).setValue(loCode);
+    }
+
+    if (loDescription) {
+      pairs.push({
+        loCode: loCode,
+        loDescription: loDescription,
+        competency: loDescription
+      });
     }
 
     rowCompetencies.forEach(colIndex => {
