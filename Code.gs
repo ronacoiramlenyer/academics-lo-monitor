@@ -21,26 +21,9 @@ const GRADE_SUMMARY_DATA_START_ROW = 12;
 // --- Central Database push -------------------------------------------
 // Pushes each (LO, Competency, Section) row already computed on the
 // GRADE # sheet up to one shared Master spreadsheet across the school.
-// Same MASTER_SHEET_ID and MASTER_HEADERS for every department - only
-// the department name (passed into push()) differs per spreadsheet.
+// Same MASTER_SHEET_ID and MASTER_HEADERS for every department.
 
 const MASTER_SHEET_ID = 'CHANGE_ME'; // Central Database spreadsheet ID
-
-// Picked from a dropdown when pushing, rather than hardcoded per copy
-// of this file, so nothing here needs editing per department.
-const DEPARTMENTS = [
-  "FILIPINO",
-  "SOCIAL SCIENCE",
-  "MATHEMATICS",
-  "ENGLISH",
-  "SCIENCE",
-  "CHRISTIAN LIVING",
-  "PRESCHOOL"
-];
-
-// Remembers the last department picked (per spreadsheet), so the
-// dropdown defaults to it next time instead of starting blank.
-const LAST_DEPARTMENT_PROPERTY_KEY = "lastDepartment";
 
 const MASTER_HEADERS = [
   'SyncedAt', 'Department', 'SchoolYear', 'Trimester', 'GradeLevel',
@@ -52,6 +35,10 @@ const MASTER_HEADERS = [
 // GRADE # sheet's own title rows (above GRADE_SUMMARY_DATA_START_ROW,
 // so still never written to by this script). Adjust if it's not A5.
 const HEADER_INFO_CELL = 'A5';
+
+// Merged cell holding the department name, e.g. "FILIPINO Department"
+// (the " Department" suffix is stripped off). Adjust if it's not A4.
+const DEPARTMENT_CELL = 'A4';
 
 const GRADE_SHEET_PATTERN = /^Grade\s*\d+$/i; // matches "Grade 7", not "7A", "LOs-Competency", etc.
 
@@ -79,82 +66,11 @@ function onOpen() {
 }
 
 function pushToCentralDatabase() {
-  showDepartmentPicker();
+  push();
 }
 
 function previewExtraction() {
   preview();
-}
-
-/**
- * Show a small dialog to pick the department to push as, defaulting to
- * whatever was picked last time on this spreadsheet.
- */
-function showDepartmentPicker() {
-  const lastDepartment = PropertiesService.getDocumentProperties().getProperty(LAST_DEPARTMENT_PROPERTY_KEY) || "";
-
-  const html = HtmlService.createHtmlOutput(`
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        padding: 20px;
-        background: #f9f9f9;
-      }
-      p {
-        margin: 0 0 12px 0;
-        color: #666;
-      }
-      select {
-        width: 100%;
-        padding: 8px;
-        font-size: 14px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        margin-bottom: 14px;
-        box-sizing: border-box;
-      }
-      button {
-        width: 100%;
-        padding: 10px;
-        font-size: 14px;
-        background: #4285F4;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-      button:hover {
-        background: #3367D6;
-      }
-    </style>
-
-    <p>📤 Select the department to push as:</p>
-
-    <select id="department">
-      ${DEPARTMENTS.map(d => `<option value="${d}"${d === lastDepartment ? " selected" : ""}>${d}</option>`).join("")}
-    </select>
-
-    <button id="pushBtn">Push to Central Database</button>
-
-    <script>
-      document.getElementById('pushBtn').onclick = () => {
-        const department = document.getElementById('department').value;
-        google.script.run.runPushForDepartment(department);
-        google.script.host.close();
-      };
-    </script>
-  `).setWidth(320).setHeight(170);
-
-  SpreadsheetApp.getUi().showModelessDialog(html, "Select Department");
-}
-
-/**
- * Called from the department picker dialog. Remembers the pick for
- * next time, then runs the actual push.
- */
-function runPushForDepartment(department) {
-  PropertiesService.getDocumentProperties().setProperty(LAST_DEPARTMENT_PROPERTY_KEY, department);
-  push(department);
 }
 
 /**
@@ -773,11 +689,13 @@ function readSectionResponses(sheetsForGrade) {
 function preview() {
   const ui = SpreadsheetApp.getUi();
   const gradeLevel = assertActiveGradeSummarySheet();
-  const { trimester, schoolYear } = parseHeaderInfo(SpreadsheetApp.getActiveSheet());
+  const sheet = SpreadsheetApp.getActiveSheet();
+  const department = parseDepartment(sheet);
+  const { trimester, schoolYear } = parseHeaderInfo(sheet);
   const rows = extractGradeSummaryRows(gradeLevel);
   Logger.log(JSON.stringify(rows, null, 2));
   ui.alert(
-    'Trimester: ' + trimester + '\nSchool Year: ' + schoolYear +
+    'Department: ' + department + '\nTrimester: ' + trimester + '\nSchool Year: ' + schoolYear +
     '\nExtracted ' + rows.length + ' rows.\nFirst row:\n' + (rows.length ? JSON.stringify(rows[0], null, 2) : '(none)')
   );
 }
@@ -786,10 +704,12 @@ function preview() {
  * Public: extracts the active GRADE # sheet's rows, confirms, and
  * pushes them into the shared Master spreadsheet.
  */
-function push(department) {
+function push() {
   const ui = SpreadsheetApp.getUi();
   const gradeLevel = assertActiveGradeSummarySheet();
-  const { trimester, schoolYear } = parseHeaderInfo(SpreadsheetApp.getActiveSheet());
+  const sheet = SpreadsheetApp.getActiveSheet();
+  const department = parseDepartment(sheet);
+  const { trimester, schoolYear } = parseHeaderInfo(sheet);
 
   const rows = extractGradeSummaryRows(gradeLevel);
   if (!rows.length) {
@@ -843,6 +763,20 @@ function parseHeaderInfo(sheet) {
     trimester: trimesterMatch[1].trim(),
     schoolYear: schoolYearMatch[1].replace(/\s/g, '')
   };
+}
+
+/**
+ * Parses the department name out of DEPARTMENT_CELL, e.g. "FILIPINO
+ * Department" -> "FILIPINO". Falls back to the cell's full trimmed
+ * text if it doesn't end in the word "Department".
+ */
+function parseDepartment(sheet) {
+  const text = String(sheet.getRange(DEPARTMENT_CELL).getValue() || '').trim();
+  if (!text) {
+    throw new Error('Could not read a department name from ' + DEPARTMENT_CELL + ' - it looks empty.');
+  }
+  const match = /^(.*?)\s+Department\b/i.exec(text);
+  return match ? match[1].trim() : text;
 }
 
 /**

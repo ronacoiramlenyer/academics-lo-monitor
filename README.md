@@ -30,8 +30,8 @@ bound directly to it:
    script needs for `.xlsx` support.
 4. Set `MASTER_SHEET_ID` near the top of `Code.gs` to the Central
    Database spreadsheet's ID (same value across every department's
-   copy) — department itself is picked from a dropdown when pushing,
-   not set in code.
+   copy) — department itself is read straight from `DEPARTMENT_CELL`
+   (default `A4`) on the active sheet, not set in code.
 5. Save, then reload the spreadsheet. A "📊 ZipGrade Loader" menu and a
    "Learning Outcomes" menu should appear.
 
@@ -108,12 +108,10 @@ dynamically by header text, same as the rest of this script, never
 assumed to be at fixed positions. `StudentCount` comes from a footer
 row matching `FOOTER_LABEL_PATTERN` (e.g. "TOTAL NO. OF STUDENTS").
 
-"Push to Central Database" first shows a dropdown to pick the
-department (`DEPARTMENTS` in `Code.gs` — FILIPINO, SOCIAL SCIENCE,
-MATHEMATICS, ENGLISH, SCIENCE, CHRISTIAN LIVING, PRESCHOOL), defaulting
-to whichever was picked last time on that spreadsheet. Nothing needs
-editing per copy for this — add or rename departments by editing the
-`DEPARTMENTS` list.
+Department is read straight from `DEPARTMENT_CELL` (default `A4`) on
+the active sheet — a merged cell reading e.g. "FILIPINO Department";
+the trailing " Department" is stripped off automatically. Nothing
+needs setting in code for this.
 
 Constants to set near the top of `Code.gs`:
 - `MASTER_SHEET_ID` — the Central Database spreadsheet's ID (ships as
@@ -121,3 +119,5 @@ Constants to set near the top of `Code.gs`:
 - `HEADER_INFO_CELL` (default `'A5'`) — where "Third Trimester,
   SY 2025-2026"-style text lives in the `GRADE #` sheet's own title
   rows — adjust if it's elsewhere.
+- `DEPARTMENT_CELL` (default `'A4'`) — where the department name lives
+  — adjust if it's elsewhere.
