@@ -70,26 +70,41 @@ Two sheets are involved:
 
   The loader never writes to this sheet — it only reads it.
 
-- **`GRADE #`** (e.g. `GRADE 7`, `GRADE 10`) — auto-synced by the
-  loader on every run. It unrolls every non-blank `Competency N` cell
-  from `LOs-Competency` into its own row (`LO Code`, `LO Description`,
-  `Competency`), so nothing needs retyping there. The **only** manual
-  step is filling in `Item Placement` per row — the ZipGrade question
-  numbers that competency covers, separated by spaces (e.g. `1 3 5`).
-  Re-running the loader preserves whatever's already typed there.
+- **`GRADE #`** (e.g. `GRADE 7`, `GRADE 10`) — synced by the
+  **"Refresh Competency Summary"** menu action (separate from "Load
+  ZipGrade Data", so updating `Item Placement` never requires
+  re-loading the quiz file). It unrolls every non-blank `Competency N`
+  cell from `LOs-Competency` into its own row (`LO Code`,
+  `LO Description`, `Competency`), so nothing needs retyping there. The
+  **only** manual step is filling in `Item Placement` per row — the
+  ZipGrade question numbers that competency covers, separated by spaces
+  (e.g. `1 3 5`). Re-syncing preserves whatever's already typed there.
 
-  The script then fills in one column per section plus a `TOTAL`
-  column. Each section's cell is the sum, across every student matched
-  into that section, of how many of that row's items they answered
+  **Rows above row 12 on this sheet are never read from or written to**
+  — that's reserved for whatever title/header formatting you've already
+  built there. The script locates its columns (`LO Code`, `Competency`,
+  section letters, `TOTAL`, ...) by scanning that header area for
+  matching label text, then only ever writes into row 12 and below —
+  updating an existing row's computed cells in place, or appending a
+  new row at the bottom for a (LO, Competency) pair it hasn't seen
+  before. If a label or section can't be found in the header, that
+  column is just skipped rather than guessed.
+
+  Each section's cell is the sum, across every student matched into
+  that section, of how many of that row's items they answered
   correctly.
 
 If any question number isn't covered by any row's `Item Placement`,
-the load's completion popup (and the log) calls it out so it can be
+the refresh's completion popup (and the log) calls it out so it can be
 fixed.
 
-This only needs `LOs-Competency` set up once per spreadsheet — nothing
-changes for the teachers who just run "Load ZipGrade Data" as usual. If
-`LOs-Competency` doesn't exist yet, this whole step is skipped.
+**Workflow**: a teacher runs "Load ZipGrade Data" as usual — nothing
+changes for them. Whoever owns LO tracking sets up `LOs-Competency`
+once, fills in `Item Placement` on `GRADE #` as needed, and runs
+"Refresh Competency Summary" whenever they want the totals recomputed
+from whatever's currently in the section sheets. If `LOs-Competency`
+doesn't exist yet, "Refresh Competency Summary" just says so instead of
+doing anything.
 
 If `LO Mapping` doesn't exist, this step is skipped entirely and the
 rest of the load behaves exactly as before.

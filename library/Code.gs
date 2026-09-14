@@ -13,6 +13,11 @@
 // it never writes to LOs-Competency itself.
 const LO_COMPETENCY_SHEET_NAME = "LOs-Competency";
 
+// The GRADE # sheet's own title/header formatting lives in rows above
+// this and is never touched by the script - LO/Competency rows always
+// start here, whatever's already above stays exactly as it is.
+const GRADE_SUMMARY_DATA_START_ROW = 12;
+
 /**
  * Create menu when sheet opens
  */
@@ -20,6 +25,7 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu("📊 ZipGrade Loader")
     .addItem("Load ZipGrade Data", "showFileList")
+    .addItem("Refresh Competency Summary", "refreshCompetencySummary")
     .addItem("Show Instructions", "showInstructions")
     .addSeparator()
     .addItem("View Logs", "viewLogs")
@@ -423,10 +429,7 @@ function processSelectedFile(fileId) {
 
     console.log(`Found ${sheetsForGrade.length} sheets for Grade ${templateGradeLevel}`);
 
-    // LO/Competency tagging is optional - LOs-Competency only exists once
-    // someone has declared it, and loading still works fine without it.
-    const loCompetencyPairs = readLoCompetencyPairs(templateSpreadsheet);
-    const totalSteps = sheetsForGrade.length + (loCompetencyPairs.length > 0 ? 1 : 0);
+    const totalSteps = sheetsForGrade.length;
 
     // Process sheets for this grade
     let totalMatched = 0;
@@ -509,20 +512,6 @@ function processSelectedFile(fileId) {
       sheetsProcessed++;
     }
 
-    let untaggedItems = [];
-    if (loCompetencyPairs.length > 0) {
-      updateProgress(sheetsProcessed, totalSteps, `Updating GRADE ${templateGradeLevel} summary...`);
-      untaggedItems = syncGradeSummarySheet(
-        templateSpreadsheet, templateGradeLevel, loCompetencyPairs, studentLookup, sheetsForGrade, numQuestions
-      );
-      console.log(`✓ Updated "GRADE ${templateGradeLevel}" summary (${loCompetencyPairs.length} competency rows)`);
-      if (untaggedItems.length > 0) {
-        console.log(`⚠ Items not tagged to any competency: ${untaggedItems.join(", ")}`);
-      }
-    } else {
-      console.log(`No "${LO_COMPETENCY_SHEET_NAME}" sheet found - skipping competency tagging`);
-    }
-
     console.log("\n" + "=".repeat(60));
     console.log("✓ COMPLETE!");
     console.log("=".repeat(60));
@@ -531,8 +520,8 @@ function processSelectedFile(fileId) {
     completeProgress(`✓ Loaded ${totalMatched} students`);
 
     let completionMessage = `✓ Successfully loaded Grade ${templateGradeLevel} data!\n\nTotal students matched: ${totalMatched}\n\nCheck the logs for details.`;
-    if (untaggedItems.length > 0) {
-      completionMessage += `\n\n⚠ Items not tagged to any competency: ${untaggedItems.join(", ")}`;
+    if (readLoCompetencyPairs(templateSpreadsheet).length > 0) {
+      completionMessage += `\n\nRun "Refresh Competency Summary" from the menu to update the GRADE ${templateGradeLevel} summary.`;
     }
     SpreadsheetApp.getUi().alert(completionMessage);
 
@@ -550,6 +539,107 @@ function processSelectedFile(fileId) {
       }
     }
   }
+}
+
+/**
+ * Refresh the GRADE # competency summary independently of loading
+ * ZipGrade data - re-reads each section sheet's already-written
+ * Student Number + Q1...Qn columns (no ZipGrade file needed), so
+ * updating Item Placement on the GRADE # sheet doesn't require
+ * re-running the full load.
+ */
+function refreshCompetencySummary() {
+  try {
+    const templateSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const allSheets = templateSpreadsheet.getSheets();
+    const detectedGrades = new Set();
+
+    for (const sheet of allSheets) {
+      const grade = extractGradeLevel(sheet.getName());
+      if (grade) detectedGrades.add(grade);
+    }
+
+    if (detectedGrades.size === 0) {
+      throw new Error("Could not detect grade level from sheet names");
+    }
+
+    const templateGradeLevel = Array.from(detectedGrades)[0];
+
+    const loCompetencyPairs = readLoCompetencyPairs(templateSpreadsheet);
+    if (loCompetencyPairs.length === 0) {
+      SpreadsheetApp.getUi().alert(
+        `❌ No "${LO_COMPETENCY_SHEET_NAME}" sheet found (or it has no usable rows).\n\nSet it up first, then try again.`
+      );
+      return;
+    }
+
+    const sheetsForGrade = allSheets.filter(sheet => extractGradeLevel(sheet.getName()) === templateGradeLevel);
+    const responses = readSectionResponses(sheetsForGrade);
+
+    const untaggedItems = syncGradeSummarySheet(
+      templateSpreadsheet, templateGradeLevel, loCompetencyPairs, responses.studentLookup, sheetsForGrade, responses.numQuestions
+    );
+
+    let message = `✓ Refreshed the GRADE ${templateGradeLevel} competency summary.`;
+    if (untaggedItems.length > 0) {
+      message += `\n\n⚠ Items not tagged to any competency: ${untaggedItems.join(", ")}`;
+    }
+    SpreadsheetApp.getUi().alert(message);
+
+  } catch (error) {
+    console.error("ERROR: " + error.message);
+    SpreadsheetApp.getUi().alert("❌ Error:\n\n" + error.message);
+  }
+}
+
+/**
+ * Rebuild a studentLookup (section+studentNumber -> { questions }) by
+ * reading each section sheet's own Student Number and Q1...Qn columns
+ * directly, instead of from a ZipGrade file. Used by
+ * refreshCompetencySummary so it doesn't need the ZipGrade export.
+ */
+function readSectionResponses(sheetsForGrade) {
+  const studentLookup = {};
+  let numQuestions = 0;
+
+  sheetsForGrade.forEach(templateSheet => {
+    const section = normalizeSection(templateSheet.getName());
+    const templateData = templateSheet.getDataRange().getValues();
+
+    const headerRowIndex = findHeaderRowIndex(templateData, "student number");
+    if (headerRowIndex === -1) return;
+
+    const headers = templateData[headerRowIndex];
+    let studentNumberColIndex = -1;
+    let questionStartIndex = -1;
+
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i].toString().trim().toLowerCase();
+      if (header === "student number") studentNumberColIndex = i;
+      else if (questionStartIndex === -1 && header.match(/^q\d+$/)) questionStartIndex = i;
+    }
+
+    if (studentNumberColIndex === -1 || questionStartIndex === -1) return;
+
+    let sheetNumQuestions = 0;
+    for (let i = questionStartIndex; i < headers.length; i++) {
+      if (headers[i].toString().match(/^Q\d+$/i)) sheetNumQuestions++;
+      else break;
+    }
+    numQuestions = Math.max(numQuestions, sheetNumQuestions);
+
+    for (let row = headerRowIndex + 1; row < templateData.length; row++) {
+      const studentNum = templateData[row][studentNumberColIndex];
+      if (!studentNum || studentNum === "Student Number") continue;
+
+      const key = buildLookupKey(section, studentNum);
+      studentLookup[key] = {
+        questions: templateData[row].slice(questionStartIndex, questionStartIndex + sheetNumQuestions)
+      };
+    }
+  });
+
+  return { studentLookup: studentLookup, numQuestions: numQuestions };
 }
 
 /**
@@ -653,42 +743,86 @@ function findGradeSummarySheet(spreadsheet, gradeLevel) {
 }
 
 /**
- * Read the Item Placement a teacher already typed into an existing
- * GRADE # sheet, keyed by LO Code + Competency, so re-syncing the
- * sheet doesn't wipe out what they've entered.
+ * Locate the GRADE # sheet's existing columns by scanning only the
+ * rows above GRADE_SUMMARY_DATA_START_ROW (its own title/header
+ * formatting, never written to) for recognizable label text. A column
+ * or section not found stays -1 / unset rather than being guessed -
+ * callers must skip writing anything they can't confidently locate.
  */
-function readExistingItemPlacements(sheet) {
-  const data = sheet.getDataRange().getValues();
-  const headerRowIndex = findHeaderRowIndex(data, "lo code");
-  if (headerRowIndex === -1) return {};
+function findGradeSummaryColumns(data, sections) {
+  const headerRowCount = Math.min(data.length, GRADE_SUMMARY_DATA_START_ROW - 1);
+  const columns = { loCode: -1, loDescription: -1, competency: -1, itemPlacement: -1, total: -1, sections: {} };
 
-  const headers = data[headerRowIndex].map(h => h.toString().trim().toLowerCase());
-  const loCodeIdx = headers.indexOf("lo code");
-  const competencyIdx = headers.indexOf("competency");
-  const itemPlacementIdx = headers.indexOf("item placement");
+  for (let row = 0; row < headerRowCount; row++) {
+    for (let col = 0; col < data[row].length; col++) {
+      const cell = data[row][col] ? data[row][col].toString().trim().toLowerCase() : "";
+      if (!cell) continue;
 
-  if (loCodeIdx === -1 || competencyIdx === -1 || itemPlacementIdx === -1) return {};
-
-  const placements = {};
-  for (let row = headerRowIndex + 1; row < data.length; row++) {
-    const loCode = data[row][loCodeIdx];
-    const competency = data[row][competencyIdx];
-    if (!loCode || !competency) continue;
-
-    const key = loCode.toString().trim() + "::" + competency.toString().trim();
-    placements[key] = data[row][itemPlacementIdx] || "";
+      if (columns.loCode === -1 && cell === "lo code") columns.loCode = col;
+      else if (columns.loDescription === -1 && cell === "lo description") columns.loDescription = col;
+      else if (columns.competency === -1 && cell === "competency") columns.competency = col;
+      else if (columns.itemPlacement === -1 && cell === "item placement") columns.itemPlacement = col;
+      else if (columns.total === -1 && cell === "total") columns.total = col;
+    }
   }
 
-  return placements;
+  sections.forEach(section => {
+    const letterSuffix = section.replace(/^\d+/, "");
+    for (let row = 0; row < headerRowCount; row++) {
+      let found = false;
+      for (let col = 0; col < data[row].length; col++) {
+        const cell = data[row][col] ? data[row][col].toString().trim().toUpperCase() : "";
+        if (cell === section || (letterSuffix && cell === letterSuffix)) {
+          columns.sections[section] = col;
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+  });
+
+  return columns;
+}
+
+/**
+ * Read GRADE_SUMMARY_DATA_START_ROW downward, mapping LO Code +
+ * Competency to the sheet row it already occupies and whatever Item
+ * Placement is already there - so re-syncing updates existing rows in
+ * place instead of duplicating them or touching their Item Placement.
+ */
+function findExistingGradeSummaryRows(data, columns) {
+  const rows = {};
+  let maxRow = GRADE_SUMMARY_DATA_START_ROW - 1;
+
+  if (columns.loCode === -1 || columns.competency === -1) return { rows: rows, nextRow: GRADE_SUMMARY_DATA_START_ROW };
+
+  for (let i = GRADE_SUMMARY_DATA_START_ROW - 1; i < data.length; i++) {
+    const loCode = data[i][columns.loCode];
+    const competency = data[i][columns.competency];
+    if (!loCode || !competency) continue;
+
+    const sheetRow = i + 1; // convert back to 1-indexed sheet row
+    const key = loCode.toString().trim() + "::" + competency.toString().trim();
+    rows[key] = {
+      sheetRow: sheetRow,
+      itemPlacementRaw: columns.itemPlacement !== -1 ? (data[i][columns.itemPlacement] || "") : ""
+    };
+    maxRow = Math.max(maxRow, sheetRow);
+  }
+
+  return { rows: rows, nextRow: maxRow + 1 };
 }
 
 /**
  * Sync the GRADE # sheet: auto-line-up every (LO Code, Competency) pair
- * from LOs-Competency as a row (creating the sheet if needed), keeping
- * whatever Item Placement a teacher already typed for that row, and
+ * from LOs-Competency (creating the sheet if it doesn't exist yet), and
  * fill in each section's computed total plus a grand TOTAL. A section
  * cell is the sum, across every student matched into that section, of
- * how many of that row's items they answered correctly.
+ * how many of that row's items they answered correctly. Rows above
+ * GRADE_SUMMARY_DATA_START_ROW are never read from or written to, so
+ * whatever title/header formatting is already there is left alone; a
+ * pair's Item Placement is only ever read, never overwritten.
  *
  * Returns the list of question numbers (1..numQuestions) not covered
  * by any row's Item Placement, so the caller can flag them.
@@ -703,19 +837,28 @@ function syncGradeSummarySheet(spreadsheet, gradeLevel, loCompetencyPairs, stude
     studentsBySection[section].push(studentLookup[key]);
   }
 
-  const existingSheet = findGradeSummarySheet(spreadsheet, gradeLevel);
-  const existingItemPlacements = existingSheet ? readExistingItemPlacements(existingSheet) : {};
-  const summarySheet = existingSheet || spreadsheet.insertSheet("GRADE " + gradeLevel);
+  let summarySheet = findGradeSummarySheet(spreadsheet, gradeLevel);
+  if (!summarySheet) {
+    summarySheet = spreadsheet.insertSheet("GRADE " + gradeLevel);
+    const header = ["LO Code", "LO Description", "Competency", "Item Placement"].concat(sections).concat(["TOTAL"]);
+    summarySheet.getRange(GRADE_SUMMARY_DATA_START_ROW - 1, 1, 1, header.length).setValues([header]);
+  }
 
-  const headerRow = ["LO Code", "LO Description", "Competency", "Item Placement"]
-    .concat(sections)
-    .concat(["TOTAL"]);
-  const rows = [headerRow];
+  const lastRow = Math.max(summarySheet.getLastRow(), GRADE_SUMMARY_DATA_START_ROW - 1);
+  const lastColumn = Math.max(summarySheet.getLastColumn(), 1);
+  const data = summarySheet.getRange(1, 1, lastRow, lastColumn).getValues();
+
+  const columns = findGradeSummaryColumns(data, sections);
+  const existing = findExistingGradeSummaryRows(data, columns);
+  let nextRow = existing.nextRow;
+
   const taggedItems = new Set();
 
   loCompetencyPairs.forEach(pair => {
     const key = pair.loCode + "::" + pair.competency;
-    const itemPlacementRaw = existingItemPlacements[key] || "";
+    const existingRow = existing.rows[key];
+    const sheetRow = existingRow ? existingRow.sheetRow : nextRow;
+    const itemPlacementRaw = existingRow ? existingRow.itemPlacementRaw : "";
     const items = parseItemPlacement(itemPlacementRaw);
     items.forEach(item => taggedItems.add(item));
 
@@ -731,16 +874,25 @@ function syncGradeSummarySheet(spreadsheet, gradeLevel, loCompetencyPairs, stude
 
     const total = sectionSums.reduce((a, b) => a + b, 0);
 
-    rows.push(
-      [pair.loCode, pair.loDescription, pair.competency, itemPlacementRaw]
-        .concat(sectionSums)
-        .concat([total])
-    );
-  });
+    if (!existingRow) {
+      // New row - write the identifying columns we could locate. Item
+      // Placement is left blank for the teacher to fill in.
+      if (columns.loCode !== -1) summarySheet.getRange(sheetRow, columns.loCode + 1).setValue(pair.loCode);
+      if (columns.loDescription !== -1) summarySheet.getRange(sheetRow, columns.loDescription + 1).setValue(pair.loDescription);
+      if (columns.competency !== -1) summarySheet.getRange(sheetRow, columns.competency + 1).setValue(pair.competency);
+      nextRow++;
+    }
 
-  summarySheet.clear();
-  summarySheet.getRange(1, 1, rows.length, headerRow.length).setValues(rows);
-  summarySheet.autoResizeColumns(1, headerRow.length);
+    sections.forEach((section, i) => {
+      if (columns.sections[section] !== undefined) {
+        summarySheet.getRange(sheetRow, columns.sections[section] + 1).setValue(sectionSums[i]);
+      }
+    });
+
+    if (columns.total !== -1) {
+      summarySheet.getRange(sheetRow, columns.total + 1).setValue(total);
+    }
+  });
 
   const untaggedItems = [];
   for (let i = 1; i <= numQuestions; i++) {

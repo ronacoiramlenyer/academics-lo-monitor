@@ -19,6 +19,7 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu("📊 ZipGrade Loader")
     .addItem("Load ZipGrade Data", "showFileList")
+    .addItem("Refresh Competency Summary", "refreshCompetencySummary")
     .addItem("Show Instructions", "showInstructions")
     .addSeparator()
     .addItem("View Logs", "viewLogs")
@@ -31,6 +32,10 @@ function showFileList() {
 
 function processSelectedFile(fileId) {
   LO_library_code_academics.processSelectedFile(fileId);
+}
+
+function refreshCompetencySummary() {
+  LO_library_code_academics.refreshCompetencySummary();
 }
 
 function showInstructions() {
