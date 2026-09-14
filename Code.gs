@@ -836,14 +836,18 @@ function extractGradeSummaryRows(gradeLevel) {
     const item = itemPlacementRaw;
     const assessmentType = columns.assessmentType !== -1 ? data[i][columns.assessmentType] : '';
 
-    // MaxScore itself isn't pushed as its own field (only used below to
-    // compute ItemPerformance) - a dedicated column when the sheet has
-    // one, otherwise the number of items in Item Placement (each worth
-    // 1 raw point, same as how SectionScore itself is computed).
-    const maxScore = columns.maxScore !== -1 ? (Number(data[i][columns.maxScore]) || 0) : '';
+    // Max score per item: a dedicated MaxScore column's value when the
+    // sheet has one, otherwise the number of items in Item Placement
+    // (each worth 1 raw point, same as how SectionScore is computed).
+    // Pushed as MaxScore too - the dashboard's own weighted-average
+    // aggregation (SUM(SectionScore) / SUM(MaxScore x StudentCount))
+    // needs a real value here, not just ItemPerformance already
+    // computed below; leaving it blank makes that aggregation divide
+    // by zero and show 0% regardless of actual performance.
     const maxScorePerItem = columns.maxScore !== -1
       ? (Number(data[i][columns.maxScore]) || 0)
       : parseItemPlacement(itemPlacementRaw).length;
+    const maxScore = maxScorePerItem;
 
     // Item/Competency Performance: total points earned across every
     // section, divided by total points possible (maxScorePerItem x
