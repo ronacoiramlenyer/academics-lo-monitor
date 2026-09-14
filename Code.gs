@@ -823,12 +823,27 @@ function extractGradeSummaryRows(gradeLevel) {
     // "1,2,3,...,10"), not a separate "Item" column.
     const itemPlacementRaw = columns.itemPlacement !== -1 ? data[i][columns.itemPlacement] : '';
     const item = itemPlacementRaw;
-    // MaxScore is only meaningful when the sheet has its own dedicated
-    // column for it (e.g. a rubric's max points) - it's used for the
-    // GRADE # sheet's own computations, not derived here for the push.
-    const maxScore = columns.maxScore !== -1 ? (Number(data[i][columns.maxScore]) || 0) : '';
     const assessmentType = columns.assessmentType !== -1 ? data[i][columns.assessmentType] : '';
-    const itemPerformance = columns.itemPerformance !== -1 ? (Number(data[i][columns.itemPerformance]) || 0) : 0;
+
+    // MaxScore itself isn't pushed as its own field (only used below to
+    // compute ItemPerformance) - a dedicated column when the sheet has
+    // one, otherwise the number of items in Item Placement (each worth
+    // 1 raw point, same as how SectionScore itself is computed).
+    const maxScore = columns.maxScore !== -1 ? (Number(data[i][columns.maxScore]) || 0) : '';
+    const maxScorePerItem = columns.maxScore !== -1
+      ? (Number(data[i][columns.maxScore]) || 0)
+      : parseItemPlacement(itemPlacementRaw).length;
+
+    // Item/Competency Performance: total points earned across every
+    // section, divided by total points possible (maxScorePerItem x
+    // total students) across every section, as a percentage - the same
+    // value repeated on every section's row for this LO/Competency.
+    // Respects an existing value already on the sheet (e.g. from a
+    // formula) and only computes it when that cell is blank.
+    const existingItemPerformance = columns.itemPerformance !== -1 ? data[i][columns.itemPerformance] : '';
+    const itemPerformance = (existingItemPerformance !== '' && existingItemPerformance !== null && existingItemPerformance !== undefined)
+      ? (Number(existingItemPerformance) || 0)
+      : computeItemPerformance(maxScorePerItem, sections, columns, data, i, studentCountsBySection);
 
     sections.forEach(section => {
       if (columns.sections[section] === undefined) return;
@@ -1157,6 +1172,33 @@ function findStudentCountsBySection(data, columns, sections) {
   }
 
   return {};
+}
+
+/**
+ * Item/Competency Performance for one LO/Competency row: total points
+ * earned across every section, divided by total points possible
+ * (maxScorePerItem x total students) across every section, as a
+ * percentage. Aggregated across all sections rather than computed per
+ * section, since the same figure is meant to represent the whole
+ * grade's performance on that item and gets repeated on every
+ * section's pushed row.
+ */
+function computeItemPerformance(maxScorePerItem, sections, columns, data, row, studentCountsBySection) {
+  if (maxScorePerItem <= 0) return 0;
+
+  let totalScored = 0;
+  let totalStudents = 0;
+
+  sections.forEach(section => {
+    if (columns.sections[section] === undefined) return;
+    totalScored += Number(data[row][columns.sections[section]]) || 0;
+    totalStudents += studentCountsBySection[section] || 0;
+  });
+
+  const totalPossible = maxScorePerItem * totalStudents;
+  if (totalPossible <= 0) return 0;
+
+  return Math.round((totalScored / totalPossible) * 100 * 1e8) / 1e8;
 }
 
 /**
