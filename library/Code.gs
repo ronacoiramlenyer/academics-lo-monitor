@@ -225,6 +225,7 @@ function processSelectedFile(fileId) {
     let zipgradeIdIndex = -1;
     let firstNameIndex = -1;
     let lastNameIndex = -1;
+    let numQuestionsIndex = -1;
     let numCorrectIndex = -1;
     let percentCorrectIndex = -1;
     let classIndex = -1;
@@ -235,6 +236,7 @@ function processSelectedFile(fileId) {
       if (header === "zipgrade id") zipgradeIdIndex = i;
       else if (header === "first name") firstNameIndex = i;
       else if (header === "last name") lastNameIndex = i;
+      else if (header === "num questions") numQuestionsIndex = i;
       else if (header === "num correct") numCorrectIndex = i;
       else if (header === "percent correct") percentCorrectIndex = i;
       else if (header === "class") classIndex = i;
@@ -245,6 +247,7 @@ function processSelectedFile(fileId) {
 
     // Validate columns
     if (zipgradeIdIndex === -1) throw new Error("Column 'ZipGrade ID' not found");
+    if (numQuestionsIndex === -1) throw new Error("Column 'Num Questions' not found");
     if (numCorrectIndex === -1) throw new Error("Column 'Num Correct' not found");
     if (percentCorrectIndex === -1) throw new Error("Column 'Percent Correct' not found");
     if (classIndex === -1) throw new Error("Column 'Class' not found");
@@ -269,6 +272,7 @@ function processSelectedFile(fileId) {
         studentLookup[key] = {
           firstName: zipgradeData[row][firstNameIndex] || "",
           lastName: zipgradeData[row][lastNameIndex] || "",
+          numQuestions: zipgradeData[row][numQuestionsIndex] || 0,
           numCorrect: zipgradeData[row][numCorrectIndex] || 0,
           percentCorrect: zipgradeData[row][percentCorrectIndex] || 0,
           questions: zipgradeData[row].slice(questionStartIndex, questionStartIndex + numQuestions)
@@ -319,9 +323,10 @@ function processSelectedFile(fileId) {
       }
 
       // Columns D onward are fully generated from the ZipGrade file on
-      // every load - Num Correct, Percent Correct, then Q1...Qn - so the
-      // template doesn't need to already have them, and a question-count
-      // change between loads doesn't leave stale columns behind.
+      // every load - Num Questions, Num Correct, Percent Correct, then
+      // Q1...Qn - so the template doesn't need to already have them,
+      // and a question-count change between loads doesn't leave stale
+      // columns behind.
       const columns = prepareSectionColumns(templateSheet, headerRowIndex + 1, numQuestions);
 
       // Update rows
@@ -338,6 +343,7 @@ function processSelectedFile(fileId) {
           const student = studentLookup[key];
           const updateRow = row + 1;
 
+          templateSheet.getRange(updateRow, columns.numQuestionsColIndex + 1).setValue(student.numQuestions);
           templateSheet.getRange(updateRow, columns.numCorrectColIndex + 1).setValue(student.numCorrect);
           templateSheet.getRange(updateRow, columns.percentCorrectColIndex + 1).setValue(student.percentCorrect);
 
@@ -383,15 +389,16 @@ function processSelectedFile(fileId) {
 
 /**
  * Wipe columns D onward (header row through the last existing row) on
- * a section sheet and rebuild them from the ZipGrade file: Num Correct,
- * Percent Correct, then Q1...Qn. This means the template doesn't need
- * those columns to already exist, and a question-count change between
- * loads doesn't leave stale extra columns behind. Returns the 0-based
- * column indices (matching the getValues() row-array convention used
- * elsewhere) for the three generated columns.
+ * a section sheet and rebuild them from the ZipGrade file: Num
+ * Questions, Num Correct, Percent Correct, then Q1...Qn. This means
+ * the template doesn't need those columns to already exist, and a
+ * question-count change between loads doesn't leave stale extra
+ * columns behind. Returns the 0-based column indices (matching the
+ * getValues() row-array convention used elsewhere) for the generated
+ * columns.
  */
 function prepareSectionColumns(sheet, headerRow, numQuestions) {
-  const dataHeaders = ["Num Correct", "Percent Correct"];
+  const dataHeaders = ["Num Questions", "Num Correct", "Percent Correct"];
   for (let q = 1; q <= numQuestions; q++) {
     dataHeaders.push("Q" + q);
   }
@@ -403,9 +410,10 @@ function prepareSectionColumns(sheet, headerRow, numQuestions) {
   sheet.getRange(headerRow, 4, 1, dataHeaders.length).setValues([dataHeaders]);
 
   return {
-    numCorrectColIndex: 3,
-    percentCorrectColIndex: 4,
-    questionColStartIndex: 5
+    numQuestionsColIndex: 3,
+    numCorrectColIndex: 4,
+    percentCorrectColIndex: 5,
+    questionColStartIndex: 6
   };
 }
 
