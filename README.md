@@ -28,11 +28,10 @@ bound directly to it:
    file in editor", then paste the contents of this repo's
    `appsscript.json` into it — this turns on the Drive API service the
    script needs for `.xlsx` support.
-4. Set the constants near the top of `Code.gs` for this copy:
-   - `DEPARTMENT` — this spreadsheet's department name, used when
-     pushing to the Central Database.
-   - `MASTER_SHEET_ID` — the Central Database spreadsheet's ID (same
-     value across every department's copy).
+4. Set `MASTER_SHEET_ID` near the top of `Code.gs` to the Central
+   Database spreadsheet's ID (same value across every department's
+   copy) — department itself is picked from a dropdown when pushing,
+   not set in code.
 5. Save, then reload the spreadsheet. A "📊 ZipGrade Loader" menu and a
    "Learning Outcomes" menu should appear.
 
@@ -109,8 +108,14 @@ dynamically by header text, same as the rest of this script, never
 assumed to be at fixed positions. `StudentCount` comes from a footer
 row matching `FOOTER_LABEL_PATTERN` (e.g. "TOTAL NO. OF STUDENTS").
 
+"Push to Central Database" first shows a dropdown to pick the
+department (`DEPARTMENTS` in `Code.gs` — FILIPINO, SOCIAL SCIENCE,
+MATHEMATICS, ENGLISH, SCIENCE, CHRISTIAN LIVING, PRESCHOOL), defaulting
+to whichever was picked last time on that spreadsheet. Nothing needs
+editing per copy for this — add or rename departments by editing the
+`DEPARTMENTS` list.
+
 Constants to set near the top of `Code.gs`:
-- `DEPARTMENT` — this spreadsheet's department name (per-copy).
 - `MASTER_SHEET_ID` — the Central Database spreadsheet's ID (ships as
   `'CHANGE_ME'`; same value across every department's copy).
 - `HEADER_INFO_CELL` (default `'A5'`) — where "Third Trimester,

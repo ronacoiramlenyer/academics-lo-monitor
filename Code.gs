@@ -26,9 +26,21 @@ const GRADE_SUMMARY_DATA_START_ROW = 12;
 
 const MASTER_SHEET_ID = 'CHANGE_ME'; // Central Database spreadsheet ID
 
-// Set once per copy of this file - the department this spreadsheet
-// pushes to the Central Database as.
-const DEPARTMENT = 'CHANGE_ME';
+// Picked from a dropdown when pushing, rather than hardcoded per copy
+// of this file, so nothing here needs editing per department.
+const DEPARTMENTS = [
+  "FILIPINO",
+  "SOCIAL SCIENCE",
+  "MATHEMATICS",
+  "ENGLISH",
+  "SCIENCE",
+  "CHRISTIAN LIVING",
+  "PRESCHOOL"
+];
+
+// Remembers the last department picked (per spreadsheet), so the
+// dropdown defaults to it next time instead of starting blank.
+const LAST_DEPARTMENT_PROPERTY_KEY = "lastDepartment";
 
 const MASTER_HEADERS = [
   'SyncedAt', 'Department', 'SchoolYear', 'Trimester', 'GradeLevel',
@@ -67,11 +79,82 @@ function onOpen() {
 }
 
 function pushToCentralDatabase() {
-  push(DEPARTMENT);
+  showDepartmentPicker();
 }
 
 function previewExtraction() {
   preview();
+}
+
+/**
+ * Show a small dialog to pick the department to push as, defaulting to
+ * whatever was picked last time on this spreadsheet.
+ */
+function showDepartmentPicker() {
+  const lastDepartment = PropertiesService.getDocumentProperties().getProperty(LAST_DEPARTMENT_PROPERTY_KEY) || "";
+
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        background: #f9f9f9;
+      }
+      p {
+        margin: 0 0 12px 0;
+        color: #666;
+      }
+      select {
+        width: 100%;
+        padding: 8px;
+        font-size: 14px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        margin-bottom: 14px;
+        box-sizing: border-box;
+      }
+      button {
+        width: 100%;
+        padding: 10px;
+        font-size: 14px;
+        background: #4285F4;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #3367D6;
+      }
+    </style>
+
+    <p>📤 Select the department to push as:</p>
+
+    <select id="department">
+      ${DEPARTMENTS.map(d => `<option value="${d}"${d === lastDepartment ? " selected" : ""}>${d}</option>`).join("")}
+    </select>
+
+    <button id="pushBtn">Push to Central Database</button>
+
+    <script>
+      document.getElementById('pushBtn').onclick = () => {
+        const department = document.getElementById('department').value;
+        google.script.run.runPushForDepartment(department);
+        google.script.host.close();
+      };
+    </script>
+  `).setWidth(320).setHeight(170);
+
+  SpreadsheetApp.getUi().showModelessDialog(html, "Select Department");
+}
+
+/**
+ * Called from the department picker dialog. Remembers the pick for
+ * next time, then runs the actual push.
+ */
+function runPushForDepartment(department) {
+  PropertiesService.getDocumentProperties().setProperty(LAST_DEPARTMENT_PROPERTY_KEY, department);
+  push(department);
 }
 
 /**
