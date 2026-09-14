@@ -784,16 +784,21 @@ function findGradeSummaryColumns(data, sections) {
   const headerRowCount = Math.min(data.length, GRADE_SUMMARY_DATA_START_ROW - 1);
   const columns = { loCode: -1, loDescription: -1, competency: -1, itemPlacement: -1, total: -1, sections: {} };
 
+  // Matched by prefix, not exact equality - a real header can read
+  // "LO Code: Description" for the code column, "Item Placement:" with
+  // a trailing colon, etc. "lo code" is checked before "lo description"
+  // so a combined "LO Code: Description" header lands on loCode, not
+  // loDescription (which needs its own dedicated column to match at all).
   for (let row = 0; row < headerRowCount; row++) {
     for (let col = 0; col < data[row].length; col++) {
       const cell = data[row][col] ? data[row][col].toString().trim().toLowerCase() : "";
       if (!cell) continue;
 
-      if (columns.loCode === -1 && cell === "lo code") columns.loCode = col;
-      else if (columns.loDescription === -1 && cell === "lo description") columns.loDescription = col;
-      else if (columns.competency === -1 && cell === "competency") columns.competency = col;
-      else if (columns.itemPlacement === -1 && cell === "item placement") columns.itemPlacement = col;
-      else if (columns.total === -1 && cell === "total") columns.total = col;
+      if (columns.loCode === -1 && cell.indexOf("lo code") === 0) columns.loCode = col;
+      else if (columns.loDescription === -1 && cell.indexOf("lo description") === 0) columns.loDescription = col;
+      else if (columns.competency === -1 && cell.indexOf("competency") === 0) columns.competency = col;
+      else if (columns.itemPlacement === -1 && cell.indexOf("item placement") === 0) columns.itemPlacement = col;
+      else if (columns.total === -1 && cell.indexOf("total") === 0) columns.total = col;
     }
   }
 
