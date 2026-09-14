@@ -806,32 +806,36 @@ function findGradeSummaryColumns(data, sections) {
 }
 
 /**
- * Read GRADE_SUMMARY_DATA_START_ROW downward, mapping LO Code +
- * Competency to the sheet row it already occupies and whatever Item
- * Placement is already there - so re-syncing updates existing rows in
- * place instead of duplicating them or touching their Item Placement.
+ * Read GRADE_SUMMARY_DATA_START_ROW downward, grouping existing rows
+ * by LO Code in the order they appear on the sheet. Rows are matched
+ * to pairs by position within their LO Code (1st competency row, 2nd,
+ * ...) rather than by matching the Competency cell's text verbatim -
+ * free text is fragile to match on (Sheets can normalize whitespace,
+ * quotes, etc. on re-read), so a text-based key risked never finding
+ * the existing row and silently duplicating it with a blank Item
+ * Placement instead of reading what was already typed there.
  */
 function findExistingGradeSummaryRows(data, columns) {
-  const rows = {};
+  const rowsByLoCode = {};
   let maxRow = GRADE_SUMMARY_DATA_START_ROW - 1;
 
-  if (columns.loCode === -1 || columns.competency === -1) return { rows: rows, nextRow: GRADE_SUMMARY_DATA_START_ROW };
+  if (columns.loCode === -1) return { rowsByLoCode: rowsByLoCode, nextRow: GRADE_SUMMARY_DATA_START_ROW };
 
   for (let i = GRADE_SUMMARY_DATA_START_ROW - 1; i < data.length; i++) {
     const loCode = data[i][columns.loCode];
-    const competency = data[i][columns.competency];
-    if (!loCode || !competency) continue;
+    if (!loCode) continue;
 
     const sheetRow = i + 1; // convert back to 1-indexed sheet row
-    const key = loCode.toString().trim() + "::" + competency.toString().trim();
-    rows[key] = {
+    const key = loCode.toString().trim();
+    if (!rowsByLoCode[key]) rowsByLoCode[key] = [];
+    rowsByLoCode[key].push({
       sheetRow: sheetRow,
       itemPlacementRaw: columns.itemPlacement !== -1 ? (data[i][columns.itemPlacement] || "") : ""
-    };
+    });
     maxRow = Math.max(maxRow, sheetRow);
   }
 
-  return { rows: rows, nextRow: maxRow + 1 };
+  return { rowsByLoCode: rowsByLoCode, nextRow: maxRow + 1 };
 }
 
 /**
@@ -842,7 +846,11 @@ function findExistingGradeSummaryRows(data, columns) {
  * how many of that row's items they answered correctly. Rows above
  * GRADE_SUMMARY_DATA_START_ROW are never read from or written to, so
  * whatever title/header formatting is already there is left alone; a
- * pair's Item Placement is only ever read, never overwritten.
+ * pair's Item Placement is only ever read, never overwritten. Existing
+ * rows are matched to pairs by LO Code + position among that LO's
+ * competencies, not by matching the Competency text - logs the
+ * detected columns either way, so a mismatch is visible in the log
+ * rather than silently producing duplicate rows or blank matches.
  *
  * Returns the list of question numbers (1..numQuestions) not covered
  * by any row's Item Placement, so the caller can flag them.
@@ -869,14 +877,27 @@ function syncGradeSummarySheet(spreadsheet, gradeLevel, loCompetencyPairs, stude
   const data = summarySheet.getRange(1, 1, lastRow, lastColumn).getValues();
 
   const columns = findGradeSummaryColumns(data, sections);
+  console.log(
+    `GRADE ${gradeLevel} summary columns - LO Code: ${columns.loCode === -1 ? "NOT FOUND" : "col " + (columns.loCode + 1)}, `
+    + `LO Description: ${columns.loDescription === -1 ? "NOT FOUND" : "col " + (columns.loDescription + 1)}, `
+    + `Competency: ${columns.competency === -1 ? "NOT FOUND" : "col " + (columns.competency + 1)}, `
+    + `Item Placement: ${columns.itemPlacement === -1 ? "NOT FOUND" : "col " + (columns.itemPlacement + 1)}, `
+    + `TOTAL: ${columns.total === -1 ? "NOT FOUND" : "col " + (columns.total + 1)}, `
+    + `Sections found: ${Object.keys(columns.sections).length}/${sections.length} (${sections.filter(s => columns.sections[s] === undefined).join(", ") || "none missing"})`
+  );
+
   const existing = findExistingGradeSummaryRows(data, columns);
   let nextRow = existing.nextRow;
+  const usedCounts = {};
 
   const taggedItems = new Set();
 
   loCompetencyPairs.forEach(pair => {
-    const key = pair.loCode + "::" + pair.competency;
-    const existingRow = existing.rows[key];
+    const existingForLoCode = existing.rowsByLoCode[pair.loCode] || [];
+    const usedCount = usedCounts[pair.loCode] || 0;
+    const existingRow = existingForLoCode[usedCount];
+    usedCounts[pair.loCode] = usedCount + 1;
+
     const sheetRow = existingRow ? existingRow.sheetRow : nextRow;
     const itemPlacementRaw = existingRow ? existingRow.itemPlacementRaw : "";
     const items = parseItemPlacement(itemPlacementRaw);
