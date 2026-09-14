@@ -55,3 +55,28 @@ For each template spreadsheet, in **Extensions → Apps Script**:
 2. Bump `"version"` in every template's `appsscript.json` to the new
    number. There's no "always latest" option for published libraries —
    each template pins a specific version.
+
+## LO/Competency tagging (optional)
+
+To get a per-Competency performance rollup alongside the quiz data, add
+a sheet named exactly `LO Mapping` to the template spreadsheet, with one
+row per LO/Competency and these columns:
+
+| LO Code | Description | Competency | Item Placement |
+|---|---|---|---|
+| PE. G1.1: | ... | Competency1 | 1,3,5 |
+| PE. G1.2: | ... | Competency3 | 3,7 |
+
+`Item Placement` is a comma-separated list of the ZipGrade question
+numbers that LO/Competency covers.
+
+This only needs to be set up once per spreadsheet (by whoever owns LO
+tracking) — nothing changes for the teachers who just run "Load ZipGrade
+Data" as usual. On every load, the script auto-creates/refreshes a
+`Competency Performance` sheet: one row per LO/Competency, one column
+per section, and a `TOTAL` column. Each section's cell is the sum,
+across every student matched into that section, of how many of that
+LO's items they answered correctly.
+
+If `LO Mapping` doesn't exist, this step is skipped entirely and the
+rest of the load behaves exactly as before.
