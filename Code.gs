@@ -819,12 +819,10 @@ function extractGradeSummaryRows(gradeLevel) {
     if (FOOTER_LABEL_PATTERN.test(data[i].join(' '))) continue; // the footer row itself
 
     const competency = columns.competency !== -1 ? data[i][columns.competency] : '';
-    // Some sheets have a dedicated "Item" column (a rubric label, a
-    // number); others only have "Item Placement" (a comma list, e.g.
-    // "1,2,3,...,10") with no separate Item column at all - fall back
-    // to that raw value so Item is never silently left blank.
+    // The database's Item field always comes from Item Placement (e.g.
+    // "1,2,3,...,10"), not a separate "Item" column.
     const itemPlacementRaw = columns.itemPlacement !== -1 ? data[i][columns.itemPlacement] : '';
-    const item = columns.item !== -1 ? data[i][columns.item] : itemPlacementRaw;
+    const item = itemPlacementRaw;
     // MaxScore is only meaningful when the sheet has its own dedicated
     // column for it (e.g. a rubric's max points) - it's used for the
     // GRADE # sheet's own computations, not derived here for the push.
@@ -1070,7 +1068,7 @@ function findGradeSummaryColumns(data, sections) {
   const headerRowCount = Math.min(data.length, GRADE_SUMMARY_DATA_START_ROW - 1);
   const columns = {
     loCode: -1, loDescription: -1, competency: -1, itemPlacement: -1, total: -1,
-    item: -1, maxScore: -1, assessmentType: -1, itemPerformance: -1,
+    maxScore: -1, assessmentType: -1, itemPerformance: -1,
     sections: {}
   };
 
@@ -1078,10 +1076,7 @@ function findGradeSummaryColumns(data, sections) {
   // "LO Code: Description" for the code column, "Item Placement:" with
   // a trailing colon, etc. "lo code" is checked before "lo description"
   // so a combined "LO Code: Description" header lands on loCode, not
-  // loDescription. "item placement" and "item performance" are checked
-  // before the bare "item" label so a plain "Item" column - used by
-  // some sheets for a rubric-criterion label rather than a ZipGrade
-  // item list - doesn't get shadowed by either of those.
+  // loDescription.
   for (let row = 0; row < headerRowCount; row++) {
     for (let col = 0; col < data[row].length; col++) {
       const cell = data[row][col] ? data[row][col].toString().trim().toLowerCase() : "";
@@ -1092,7 +1087,6 @@ function findGradeSummaryColumns(data, sections) {
       else if (columns.competency === -1 && cell.indexOf("competency") === 0) columns.competency = col;
       else if (columns.itemPlacement === -1 && cell.indexOf("item placement") === 0) columns.itemPlacement = col;
       else if (columns.itemPerformance === -1 && cell.indexOf("item performance") === 0) columns.itemPerformance = col;
-      else if (columns.item === -1 && cell.indexOf("item") === 0) columns.item = col;
       else if (columns.maxScore === -1 && cell.indexOf("max score") === 0) columns.maxScore = col;
       else if (columns.assessmentType === -1 && (cell.indexOf("assessment type") === 0 || cell === "a-m-t")) columns.assessmentType = col;
       else if (columns.total === -1 && cell.indexOf("total") === 0) columns.total = col;
