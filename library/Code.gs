@@ -297,7 +297,17 @@ function processSelectedFile(fileId) {
       const section = normalizeSection(sheetName);
 
       const templateData = templateSheet.getDataRange().getValues();
-      const templateHeaders = templateData[0];
+
+      // The header row isn't always row 1 - some templates have title
+      // or adviser rows above the real column headers, so search for it.
+      const headerRowIndex = findHeaderRowIndex(templateData, "student number");
+
+      if (headerRowIndex === -1) {
+        console.log(`⚠ Required columns not found in ${sheetName}, skipping`);
+        continue;
+      }
+
+      const templateHeaders = templateData[headerRowIndex];
 
       // Find columns
       let studentNumberColIndex = -1;
@@ -315,19 +325,14 @@ function processSelectedFile(fileId) {
         }
       }
 
-      if (studentNumberColIndex === -1) {
-        console.log(`⚠ Required columns not found in ${sheetName}, skipping`);
-        continue;
-      }
-
       // Reset columns D onward before writing fresh data, so values/
       // formatting from a previous load don't linger
-      resetSectionColumns(templateSheet);
+      resetSectionColumns(templateSheet, headerRowIndex + 2);
 
       // Update rows
       let sheetMatched = 0;
 
-      for (let row = 1; row < templateData.length; row++) {
+      for (let row = headerRowIndex + 1; row < templateData.length; row++) {
         const studentNum = templateData[row][studentNumberColIndex];
 
         if (!studentNum || studentNum === "Student Number") continue;
@@ -389,17 +394,39 @@ function processSelectedFile(fileId) {
 }
 
 /**
- * Clear columns D onward, below the header row, on a section sheet
+ * Clear columns D onward, from dataStartRow down, on a section sheet
  * before writing fresh ZipGrade data — clears both values and
  * formatting (e.g. leftover green/red fills from a previous load).
  */
-function resetSectionColumns(sheet) {
+function resetSectionColumns(sheet, dataStartRow) {
   const lastRow = sheet.getLastRow();
   const lastColumn = sheet.getLastColumn();
 
-  if (lastRow < 2 || lastColumn < 4) return;
+  if (lastRow < dataStartRow || lastColumn < 4) return;
 
-  sheet.getRange(2, 4, lastRow - 1, lastColumn - 3).clear();
+  sheet.getRange(dataStartRow, 4, lastRow - dataStartRow + 1, lastColumn - 3).clear();
+}
+
+/**
+ * Find the row (0-indexed, matching getValues() rows) that contains a
+ * cell equal to targetHeader, case-insensitively. Templates can have
+ * title/adviser rows above the real header row, so this scans the
+ * first several rows instead of assuming row 0 is the header.
+ */
+function findHeaderRowIndex(data, targetHeader) {
+  const target = targetHeader.trim().toLowerCase();
+  const maxRowsToScan = Math.min(data.length, 15);
+
+  for (let row = 0; row < maxRowsToScan; row++) {
+    for (let col = 0; col < data[row].length; col++) {
+      const cell = data[row][col];
+      if (cell && cell.toString().trim().toLowerCase() === target) {
+        return row;
+      }
+    }
+  }
+
+  return -1;
 }
 
 /**
