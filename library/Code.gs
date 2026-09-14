@@ -227,6 +227,7 @@ function processSelectedFile(fileId) {
     let lastNameIndex = -1;
     let numCorrectIndex = -1;
     let percentCorrectIndex = -1;
+    let classIndex = -1;
     let questionStartIndex = -1;
 
     for (let i = 0; i < headers.length; i++) {
@@ -236,6 +237,7 @@ function processSelectedFile(fileId) {
       else if (header === "last name") lastNameIndex = i;
       else if (header === "num correct") numCorrectIndex = i;
       else if (header === "percent correct") percentCorrectIndex = i;
+      else if (header === "class") classIndex = i;
       else if (header.match(/^q\d+$/)) {
         if (questionStartIndex === -1) questionStartIndex = i;
       }
@@ -245,6 +247,7 @@ function processSelectedFile(fileId) {
     if (zipgradeIdIndex === -1) throw new Error("Column 'ZipGrade ID' not found");
     if (numCorrectIndex === -1) throw new Error("Column 'Num Correct' not found");
     if (percentCorrectIndex === -1) throw new Error("Column 'Percent Correct' not found");
+    if (classIndex === -1) throw new Error("Column 'Class' not found");
     if (questionStartIndex === -1) throw new Error("Question columns (Q1, Q2, ...) not found");
 
     // Count questions
@@ -255,12 +258,15 @@ function processSelectedFile(fileId) {
     }
     console.log(`Found ${numQuestions} questions`);
 
-    // Create lookup
+    // Create lookup, keyed by section (Class column) + student number so a
+    // student number that repeats across sections can't cross-match.
     const studentLookup = {};
     for (let row = 1; row < zipgradeData.length; row++) {
       const studentNum = zipgradeData[row][zipgradeIdIndex];
       if (studentNum) {
-        studentLookup[studentNum] = {
+        const section = normalizeSection(zipgradeData[row][classIndex]);
+        const key = buildLookupKey(section, studentNum);
+        studentLookup[key] = {
           firstName: zipgradeData[row][firstNameIndex] || "",
           lastName: zipgradeData[row][lastNameIndex] || "",
           numCorrect: zipgradeData[row][numCorrectIndex] || 0,
@@ -288,6 +294,7 @@ function processSelectedFile(fileId) {
 
     for (const templateSheet of sheetsForGrade) {
       const sheetName = templateSheet.getName();
+      const section = normalizeSection(sheetName);
 
       const templateData = templateSheet.getDataRange().getValues();
       const templateHeaders = templateData[0];
@@ -321,8 +328,10 @@ function processSelectedFile(fileId) {
 
         if (!studentNum || studentNum === "Student Number") continue;
 
-        if (studentLookup[studentNum]) {
-          const student = studentLookup[studentNum];
+        const key = buildLookupKey(section, studentNum);
+
+        if (studentLookup[key]) {
+          const student = studentLookup[key];
           const updateRow = row + 1;
 
           if (numCorrectColIndex !== -1) {
@@ -373,6 +382,20 @@ function processSelectedFile(fileId) {
       }
     }
   }
+}
+
+/**
+ * Normalize a section/class value for matching (e.g., " 1a " → "1A")
+ */
+function normalizeSection(value) {
+  return value ? value.toString().trim().toUpperCase() : "";
+}
+
+/**
+ * Build the section + student number key used to look up a student
+ */
+function buildLookupKey(section, studentNum) {
+  return `${section}::${studentNum.toString().trim()}`;
 }
 
 /**
