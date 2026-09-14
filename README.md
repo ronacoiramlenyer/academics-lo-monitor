@@ -58,25 +58,38 @@ For each template spreadsheet, in **Extensions → Apps Script**:
 
 ## LO/Competency tagging (optional)
 
-To get a per-Competency performance rollup alongside the quiz data, add
-a sheet named exactly `LO Mapping` to the template spreadsheet, with one
-row per LO/Competency and these columns:
+Two sheets are involved:
 
-| LO Code | Description | Competency | Item Placement |
-|---|---|---|---|
-| PE. G1.1: | ... | Competency1 | 1,3,5 |
-| PE. G1.2: | ... | Competency3 | 3,7 |
+- **`LOs-Competency`** — a pure reference sheet, declared once by
+  whoever owns LO tracking. One row per LO, with up to five
+  `Competency N` columns holding each competency's description:
 
-`Item Placement` is a comma-separated list of the ZipGrade question
-numbers that LO/Competency covers.
+  | LO Code | LO Description | Competency 1 | Competency 2 | ... |
+  |---|---|---|---|---|
+  | Comp. G10.1 | ... | Clean raw data in... | Organize data structures by... | |
 
-This only needs to be set up once per spreadsheet (by whoever owns LO
-tracking) — nothing changes for the teachers who just run "Load ZipGrade
-Data" as usual. On every load, the script auto-creates/refreshes a
-`Competency Performance` sheet: one row per LO/Competency, one column
-per section, and a `TOTAL` column. Each section's cell is the sum,
-across every student matched into that section, of how many of that
-LO's items they answered correctly.
+  The loader never writes to this sheet — it only reads it.
+
+- **`GRADE #`** (e.g. `GRADE 7`, `GRADE 10`) — auto-synced by the
+  loader on every run. It unrolls every non-blank `Competency N` cell
+  from `LOs-Competency` into its own row (`LO Code`, `LO Description`,
+  `Competency`), so nothing needs retyping there. The **only** manual
+  step is filling in `Item Placement` per row — the ZipGrade question
+  numbers that competency covers, separated by spaces (e.g. `1 3 5`).
+  Re-running the loader preserves whatever's already typed there.
+
+  The script then fills in one column per section plus a `TOTAL`
+  column. Each section's cell is the sum, across every student matched
+  into that section, of how many of that row's items they answered
+  correctly.
+
+If any question number isn't covered by any row's `Item Placement`,
+the load's completion popup (and the log) calls it out so it can be
+fixed.
+
+This only needs `LOs-Competency` set up once per spreadsheet — nothing
+changes for the teachers who just run "Load ZipGrade Data" as usual. If
+`LOs-Competency` doesn't exist yet, this whole step is skipped.
 
 If `LO Mapping` doesn't exist, this step is skipped entirely and the
 rest of the load behaves exactly as before.
