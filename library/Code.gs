@@ -147,11 +147,136 @@ function showFileList() {
   }
 }
 
+const PROGRESS_CACHE_KEY = "zipgrade_loader_progress";
+
+/**
+ * Record progress for the modeless dialog (shown by showProgressDialog)
+ * to poll and render. Stored in the script cache since the dialog's
+ * polling calls are separate executions from the one doing the work.
+ */
+function updateProgress(current, total, message) {
+  CacheService.getScriptCache().put(PROGRESS_CACHE_KEY, JSON.stringify({
+    current: current,
+    total: total,
+    message: message,
+    done: false,
+    error: null
+  }), 300);
+}
+
+function completeProgress(message) {
+  CacheService.getScriptCache().put(PROGRESS_CACHE_KEY, JSON.stringify({
+    current: 1,
+    total: 1,
+    message: message,
+    done: true,
+    error: null
+  }), 300);
+}
+
+function failProgress(message) {
+  CacheService.getScriptCache().put(PROGRESS_CACHE_KEY, JSON.stringify({
+    current: 0,
+    total: 0,
+    message: "",
+    done: true,
+    error: message
+  }), 300);
+}
+
+/**
+ * Called by the progress dialog's client-side polling script.
+ */
+function getProgress() {
+  const raw = CacheService.getScriptCache().get(PROGRESS_CACHE_KEY);
+  return raw ? JSON.parse(raw) : { current: 0, total: 0, message: "", done: false, error: null };
+}
+
+/**
+ * Show a small modeless dialog with a progress bar that polls
+ * getProgress() and closes itself once the load finishes or errors.
+ */
+function showProgressDialog() {
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 16px;
+      }
+      #status {
+        font-size: 13px;
+        color: #333;
+        margin-bottom: 10px;
+        min-height: 18px;
+      }
+      .bar-track {
+        width: 100%;
+        height: 10px;
+        background: #eee;
+        border-radius: 5px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        width: 0%;
+        background: #4285F4;
+        transition: width 0.3s ease;
+      }
+      .bar-fill.error {
+        background: #EA4335;
+      }
+    </style>
+    <div id="status">Starting...</div>
+    <div class="bar-track"><div class="bar-fill" id="fill"></div></div>
+    <script>
+      function poll() {
+        google.script.run.withSuccessHandler(onProgress).withFailureHandler(onFailure).getProgress();
+      }
+
+      function onFailure(error) {
+        document.getElementById('status').textContent = '❌ ' + error.message;
+        document.getElementById('fill').classList.add('error');
+        setTimeout(() => google.script.host.close(), 2500);
+      }
+
+      function onProgress(progress) {
+        const statusEl = document.getElementById('status');
+        const fillEl = document.getElementById('fill');
+
+        if (progress.error) {
+          statusEl.textContent = '❌ ' + progress.error;
+          fillEl.classList.add('error');
+          fillEl.style.width = '100%';
+          setTimeout(() => google.script.host.close(), 2500);
+          return;
+        }
+
+        const pct = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : (progress.done ? 100 : 0);
+        fillEl.style.width = pct + '%';
+        statusEl.textContent = progress.message + (progress.total > 0 ? \` (\${progress.current}/\${progress.total})\` : '');
+
+        if (progress.done) {
+          setTimeout(() => google.script.host.close(), 1200);
+          return;
+        }
+
+        setTimeout(poll, 700);
+      }
+
+      poll();
+    </script>
+  `).setWidth(320).setHeight(90);
+
+  SpreadsheetApp.getUi().showModelessDialog(html, "Loading ZipGrade Data...");
+}
+
 /**
  * Process the selected file
  */
 function processSelectedFile(fileId) {
   let tempConvertedFileId = null;
+  updateProgress(0, 0, "Starting...");
+  showProgressDialog();
   try {
     console.log("Processing file ID: " + fileId);
 
@@ -295,10 +420,13 @@ function processSelectedFile(fileId) {
     // Process sheets for this grade
     let totalMatched = 0;
     const classResults = {};
+    let sheetsProcessed = 0;
 
     for (const templateSheet of sheetsForGrade) {
       const sheetName = templateSheet.getName();
       const section = normalizeSection(sheetName);
+
+      updateProgress(sheetsProcessed, sheetsForGrade.length, `Processing ${sheetName}...`);
 
       const templateData = templateSheet.getDataRange().getValues();
 
@@ -308,6 +436,7 @@ function processSelectedFile(fileId) {
 
       if (headerRowIndex === -1) {
         console.log(`⚠ Required columns not found in ${sheetName}, skipping`);
+        sheetsProcessed++;
         continue;
       }
 
@@ -361,8 +490,12 @@ function processSelectedFile(fileId) {
         }
       }
 
+      // Autofit the generated columns to their content
+      templateSheet.autoResizeColumns(4, 3 + numQuestions);
+
       classResults[sheetName] = sheetMatched;
       console.log(`✓ ${sheetName}: ${sheetMatched} students matched`);
+      sheetsProcessed++;
     }
 
     console.log("\n" + "=".repeat(60));
@@ -370,10 +503,12 @@ function processSelectedFile(fileId) {
     console.log("=".repeat(60));
     console.log(`Grade ${templateGradeLevel} - Total students matched: ${totalMatched}`);
 
+    completeProgress(`✓ Loaded ${totalMatched} students`);
     SpreadsheetApp.getUi().alert(`✓ Successfully loaded Grade ${templateGradeLevel} data!\n\nTotal students matched: ${totalMatched}\n\nCheck the logs for details.`);
 
   } catch (error) {
     console.error("ERROR: " + error.message);
+    failProgress(error.message);
     SpreadsheetApp.getUi().alert("❌ Error:\n\n" + error.message);
   } finally {
     if (tempConvertedFileId) {
