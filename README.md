@@ -1,32 +1,57 @@
 # academics-lo-monitor
 
-Google Apps Script tool for loading ZipGrade quiz exports into
-grade-level template spreadsheets.
+Google Apps Script tooling for loading ZipGrade quiz exports into
+per-grade-level template spreadsheets.
 
-## Files
+## Layout
 
-- `Code.gs` — the complete script: menu setup, the file picker (finds
-  ZipGrade exports in Google Sheets or `.xlsx` format in the same Drive
-  folder as the template), grade-level validation, and matching/color-
-  coding student responses into the template.
-- `appsscript.json` — the project manifest. Enables the Drive API
-  (advanced service), which is needed to convert an uploaded `.xlsx`
-  file to a Google Sheet before it can be read.
+- `library/` — the `LO_library_code_academics` Apps Script **library**
+  (project title: `LO-library-code-academics`): all the real logic (file
+  picker, grade-level validation, `.xlsx` conversion, matching ZipGrade
+  rows into the template, color-coding responses).
+- `template-bootstrap/` — the small script bound to *each* grade-level
+  template spreadsheet. It just wires up the `onOpen()` menu and forwards
+  to the library, so every template stays in sync when the library is
+  updated instead of carrying its own copy of the logic. Its
+  `appsscript.json` auto-loads the library — no manual "Add a library"
+  step needed in the Apps Script UI once the Script ID below is filled
+  in.
 
-## Setup
+This split exists because Apps Script requires `onOpen()` (a simple
+trigger) and anything called by `google.script.run` from the picker
+dialog to live in the container-bound script itself — a library can't
+provide those directly.
 
-Each grade-level template spreadsheet gets its own copy of this script,
-bound directly to it:
+## One-time setup: publish the library
 
-1. Open the template spreadsheet → **Extensions → Apps Script**.
-2. Paste the contents of `Code.gs` into the editor (replacing the default
-   `Code.gs` there).
-3. In **Project Settings** (⚙️), enable "Show `appsscript.json` manifest
-   file in editor", then paste the contents of this repo's
-   `appsscript.json` into it — this turns on the Drive API service the
-   script needs for `.xlsx` support.
-4. Save, then reload the spreadsheet. A "📊 ZipGrade Loader" menu should
-   appear.
+1. Create a standalone Apps Script project (via `clasp` or
+   script.google.com), push `library/Code.gs` and `library/appsscript.json`
+   into it.
+2. **Deploy → New deployment → type "Library"** → Deploy.
+3. Note the project's **Script ID** (Project Settings ⚙️) and the
+   **version number** of the deployment.
+4. In `template-bootstrap/appsscript.json`, replace
+   `REPLACE_WITH_LIBRARY_SCRIPT_ID` with that Script ID (and bump
+   `"version"` here whenever you deploy a new library version).
 
-Repeat for each grade-level template. There's no shared library — update
-each template's `Code.gs` directly if the script changes.
+## Adding a grade-level template
+
+For each template spreadsheet, in **Extensions → Apps Script**:
+
+1. Paste `template-bootstrap/Code.gs` and `template-bootstrap/appsscript.json`
+   (with the real library Script ID filled in) into that template's bound
+   script project.
+2. Turn on "Show `appsscript.json` manifest file in editor" under Project
+   Settings ⚙️ if the manifest isn't visible yet, so you can paste the
+   JSON in directly.
+3. Reload the spreadsheet — the "📊 ZipGrade Loader" menu should appear,
+   backed by the library. No manual Libraries-dialog step is needed since
+   the manifest already declares the dependency.
+
+## Updating the logic later
+
+1. Edit `library/Code.gs`, push, then create a **new** library deployment
+   (Deploy → Manage deployments → Edit → New version).
+2. Bump `"version"` in every template's `appsscript.json` to the new
+   number. There's no "always latest" option for published libraries —
+   each template pins a specific version.
