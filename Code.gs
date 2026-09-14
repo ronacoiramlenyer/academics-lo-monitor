@@ -1332,6 +1332,25 @@ function syncGradeSummarySheet(spreadsheet, gradeLevel, loCompetencyPairs, stude
     if (columns.total !== -1) {
       summarySheet.getRange(sheetRow, columns.total + 1).setValue(total);
     }
+
+    if (columns.itemPerformance !== -1) {
+      // Max score per item: a dedicated MaxScore column's current
+      // value when the sheet has one, otherwise the item count (each
+      // item worth 1 raw point, same as sectionSums above).
+      let maxScorePerItem = items.length;
+      if (columns.maxScore !== -1 && existingRow) {
+        const rawMaxScore = data[sheetRow - 1][columns.maxScore];
+        if (rawMaxScore !== "" && rawMaxScore !== null && rawMaxScore !== undefined) {
+          maxScorePerItem = Number(rawMaxScore) || items.length;
+        }
+      }
+
+      const totalStudents = sections.reduce((sum, section) => sum + (studentsBySection[section] || []).length, 0);
+      const totalPossible = maxScorePerItem * totalStudents;
+      const itemPerformance = totalPossible > 0 ? Math.round((total / totalPossible) * 100 * 1e8) / 1e8 : 0;
+
+      summarySheet.getRange(sheetRow, columns.itemPerformance + 1).setValue(itemPerformance);
+    }
   });
 
   const untaggedItems = [];
