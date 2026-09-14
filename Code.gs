@@ -26,6 +26,10 @@ const GRADE_SUMMARY_DATA_START_ROW = 12;
 
 const MASTER_SHEET_ID = 'CHANGE_ME'; // Central Database spreadsheet ID
 
+// Set once per copy of this file - the department this spreadsheet
+// pushes to the Central Database as.
+const DEPARTMENT = 'CHANGE_ME';
+
 const MASTER_HEADERS = [
   'SyncedAt', 'Department', 'SchoolYear', 'Trimester', 'GradeLevel',
   'LOCode', 'Competency', 'Item', 'MaxScore', 'AssessmentType',
@@ -55,6 +59,19 @@ function onOpen() {
     .addSeparator()
     .addItem("View Logs", "viewLogs")
     .addToUi();
+
+  ui.createMenu("Learning Outcomes")
+    .addItem("Push to Central Database", "pushToCentralDatabase")
+    .addItem("Preview extraction (no push)", "previewExtraction")
+    .addToUi();
+}
+
+function pushToCentralDatabase() {
+  push(DEPARTMENT);
+}
+
+function previewExtraction() {
+  preview();
 }
 
 /**
