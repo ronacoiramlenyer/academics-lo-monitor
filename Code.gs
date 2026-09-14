@@ -825,9 +825,10 @@ function extractGradeSummaryRows(gradeLevel) {
     // to that raw value so Item is never silently left blank.
     const itemPlacementRaw = columns.itemPlacement !== -1 ? data[i][columns.itemPlacement] : '';
     const item = columns.item !== -1 ? data[i][columns.item] : itemPlacementRaw;
-    const maxScore = columns.maxScore !== -1
-      ? (Number(data[i][columns.maxScore]) || 0)
-      : parseItemPlacement(itemPlacementRaw).length;
+    // MaxScore is only meaningful when the sheet has its own dedicated
+    // column for it (e.g. a rubric's max points) - it's used for the
+    // GRADE # sheet's own computations, not derived here for the push.
+    const maxScore = columns.maxScore !== -1 ? (Number(data[i][columns.maxScore]) || 0) : '';
     const assessmentType = columns.assessmentType !== -1 ? data[i][columns.assessmentType] : '';
     const itemPerformance = columns.itemPerformance !== -1 ? (Number(data[i][columns.itemPerformance]) || 0) : 0;
 
