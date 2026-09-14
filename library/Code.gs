@@ -320,6 +320,10 @@ function processSelectedFile(fileId) {
         continue;
       }
 
+      // Reset columns D onward before writing fresh data, so values/
+      // formatting from a previous load don't linger
+      resetSectionColumns(templateSheet);
+
       // Update rows
       let sheetMatched = 0;
 
@@ -382,6 +386,20 @@ function processSelectedFile(fileId) {
       }
     }
   }
+}
+
+/**
+ * Clear columns D onward, below the header row, on a section sheet
+ * before writing fresh ZipGrade data — clears both values and
+ * formatting (e.g. leftover green/red fills from a previous load).
+ */
+function resetSectionColumns(sheet) {
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+
+  if (lastRow < 2 || lastColumn < 4) return;
+
+  sheet.getRange(2, 4, lastRow - 1, lastColumn - 3).clear();
 }
 
 /**
