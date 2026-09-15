@@ -107,6 +107,9 @@ like `Competency1`, a ZipGrade item number) — the columns are located
 dynamically by header text, same as the rest of this script, never
 assumed to be at fixed positions. `StudentCount` comes from a footer
 row matching `FOOTER_LABEL_PATTERN` (e.g. "TOTAL NO. OF STUDENTS").
+A section with zero recorded students there (an unused template tab
+that was never loaded with ZipGrade data) is skipped entirely rather
+than pushed as an all-zero row for every LO/Competency.
 
 Department is read straight from `DEPARTMENT_CELL` (default `A4`) on
 the active sheet — a merged cell reading e.g. "FILIPINO Department";

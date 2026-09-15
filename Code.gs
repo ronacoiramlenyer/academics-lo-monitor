@@ -863,6 +863,12 @@ function extractGradeSummaryRows(gradeLevel) {
     sections.forEach(section => {
       if (columns.sections[section] === undefined) return;
 
+      // A section with zero recorded students was never actually loaded for
+      // this grade (e.g. an unused template tab) - skip it instead of
+      // pushing a meaningless all-zero row for every LO/Competency.
+      const sectionStudentCount = studentCountsBySection[section] || 0;
+      if (sectionStudentCount <= 0) return;
+
       rows.push({
         gradeLevel: 'G' + gradeLevel,
         loCode: loCode.toString().split(':')[0].trim(),
@@ -872,7 +878,7 @@ function extractGradeSummaryRows(gradeLevel) {
         assessmentType: assessmentType ? assessmentType.toString().trim() : '',
         section: section,
         sectionScore: Number(data[i][columns.sections[section]]) || 0,
-        studentCount: studentCountsBySection[section] || 0,
+        studentCount: sectionStudentCount,
         itemPerformance: itemPerformance
       });
     });
